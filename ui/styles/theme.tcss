@@ -1,0 +1,180 @@
+/* PMTerminal Theme - Compatible TCSS (no :root / custom properties)
+   - Uses literal color values so Textual's parser accepts the file
+   - Neutral professional palette, centered welcome panel, single-row header
+*/
+
+ /* Color palette (literal hex values) */
+ /* surface: #0B1220; panel: #0F1724; primary: #2E6A9B; primary-darken-1: #24577F;
+    primary-darken-2: #1C425F; accent: #9FB0C7; accent-darken-1: #8AA0B8;
+    secondary: #4A5568; text: #E6EEF6; text-muted: #9AA9BB;
+    success: #3CB371; warning: #D69E2E; danger: #D64545
+*/
+
+ /* Global styles */
+Screen, Window {
+    background: #0B1220;
+    color: #E6EEF6;
+  
+}
+
+
+/* -------------------------
+   MainHeader (single-row)
+   ------------------------- */
+MainHeader {
+    dock: top;
+    height: 3;
+    width: 100%;
+    background: #0F1724;
+    border-bottom: solid #4A5568;
+    padding: 0 1;
+    content-align: center middle;
+}
+
+
+
+
+
+
+
+
+MainHeader .segment {
+    height: 100%;
+    content-align: center middle;
+    padding: 0 1;
+    color: #E6EEF6;
+}
+
+MainHeader .segment.funder,
+MainHeader .segment.proxy {
+    content-align: left middle;
+    min-width: 18;
+}
+
+MainHeader .segment.market {
+    content-align: center middle;
+}
+
+MainHeader .segment.clob,
+MainHeader .segment.ws {
+    content-align: right middle;
+    min-width: 14;
+}
+
+
+
+/* -------------------------
+   Markets / Tables
+   ------------------------- */
+MarketsScreen {
+    background: #0B1220;
+}
+
+MarketsScreen .markets-header {
+    dock: top;
+    height: 3;
+    background: #0F1724;
+    padding: 1;
+}
+
+MarketsScreen .markets-content {
+    height: 1fr;
+    padding: 1;
+}
+
+DataTable {
+    background: #0B1220;
+}
+
+DataTable > .datatable--header {
+    background: #2E6A9B;
+    color: #E6EEF6;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: #9FB0C7;
+}
+
+DataTable > .datatable--hover {
+    background: #24577F;
+}
+
+/* -------------------------
+   Common components
+   ------------------------- */
+Button {
+    border: round #4A5568;
+    width: 20;                  /* fixed width so all buttons are identical */
+    height: 3;
+    background: #2E6A9B;
+    color: #E6EEF6;
+    text-style: bold;
+    content-align: center middle; /* center the label inside the button */
+    padding: 0 1;
+}
+
+/* Hover / focus states */
+Button:hover {
+    background: #24577F;
+}
+
+Button:focus {
+    background: #9FB0C7;
+}
+
+/* Primary variant uses the same fixed width so it matches visually */
+Button.-primary {
+    width: 20;
+    background: #9FB0C7;
+    color: #E6EEF6;
+}
+
+Button.-primary:hover {
+    background: #8AA0B8;
+}
+
+/* Screen-specific override (keep same width, adjust margin if needed) */
+WelcomeScreen Button {
+    width: 20;
+    margin: 0 1;
+}
+
+Input {
+    height: 3;
+    padding: 0 1;
+    border: solid #4A5568;
+    background: #0B1220;
+}
+
+Input:focus {
+    border: solid #2E6A9B;
+}
+
+Static, Label {
+    width: auto;
+    height: auto;
+    color: #E6EEF6;
+}
+
+/* Footer */
+Footer {
+    dock: bottom;
+    margin: 0 0 2 0;
+    height: 1;
+    background: #1C425F;
+}
+
+Footer .footer-key {
+    color: #9FB0C7;
+    text-style: bold;
+}
+
+/* Utilities */
+.text-center { text-align: center; }
+.text-muted  { color: #9AA9BB; }
+.text-accent { color: #9FB0C7; }
+.border-accent { border: solid #9FB0C7; }
+.border-primary { border: solid #2E6A9B; }
+.bg-panel { background: #0F1724; }
+.bg-surface { background: #0B1220; }

@@ -1,0 +1,3 @@
+"""
+FQS Configuration Module
+"""
