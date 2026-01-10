@@ -351,6 +351,11 @@ class CommandsManager:
         self.register_handler("balance", self._handle_balance)
         self.register_handler("score", self._handle_score)
         self.register_handler("time", self._handle_time)
+        # New extended commands
+        self.register_handler("markets", self._handle_markets)
+        self.register_handler("orders", self._handle_orders)
+        self.register_handler("positions", self._handle_positions)
+        self.register_handler("trades", self._handle_trades)
 
     def register_handler(self, root_cmd: str, handler: Handler) -> None:
         """Add or override a handler for a root command token."""
@@ -449,6 +454,29 @@ Examples:
   quickbuy football stats possession 58
   quickbuy football stats shots 8 5
   Ctrl+Y  (execute quick buy based on ML predictions)
+
+═══════════════════════════════════════════════════════════════════════
+MARKET COMMANDS
+═══════════════════════════════════════════════════════════════════════
+  markets search <query>      - Search for markets by keyword
+  markets activate <slug>     - Activate market for trading
+  markets list                - List available football markets
+
+═══════════════════════════════════════════════════════════════════════
+ORDER MANAGEMENT
+═══════════════════════════════════════════════════════════════════════
+  orders list                 - Show all open orders
+  orders cancel <order_id>    - Cancel a specific order
+  orders cancel all           - Cancel all open orders
+
+═══════════════════════════════════════════════════════════════════════
+POSITION & TRADE TRACKING
+═══════════════════════════════════════════════════════════════════════
+  positions show              - Display current positions
+  positions pnl               - Show P&L summary
+  trades history              - Show trade history
+  trades recent               - Show recent trades
+  trades today                - Show today's trades
 
 ═══════════════════════════════════════════════════════════════════════
 KEYBOARD SHORTCUTS
@@ -1413,6 +1441,206 @@ KEYBOARD SHORTCUTS
         except Exception as e:
             self.logger.error(f"Time command error: {e}", exc_info=True)
             return (f"✗ Time update error: {str(e)}", False, None)
+
+    async def _handle_markets(self, req: CommandRequest) -> HandlerResult:
+        """
+        Handle market operations
+        
+        Usage:
+            markets search <query>    - Search for markets
+            markets activate <slug>   - Activate/load a market for trading
+            markets list              - List available football markets
+        """
+        if len(req.parts) < 2:
+            return ("Usage: markets [search|activate|list] <args>", False, None)
+        
+        subcommand = req.parts[1].lower()
+        
+        try:
+            if subcommand == "search":
+                if len(req.parts) < 3:
+                    return ("Usage: markets search <query>", False, None)
+                
+                query = " ".join(req.parts[2:])
+                self.logger.info(f"Searching markets for: {query}")
+                
+                # Use fetch manager to search markets
+                if hasattr(self.app.core, 'fetch') and self.app.core.fetch:
+                    # For now, return a placeholder message
+                    return (f"🔍 Searching markets for '{query}'...\n(Market search feature coming soon)", True, None)
+                else:
+                    return ("Market search unavailable (fetch core not initialized)", False, None)
+            
+            elif subcommand == "activate":
+                if len(req.parts) < 3:
+                    return ("Usage: markets activate <slug>", False, None)
+                
+                market_slug = req.parts[2]
+                self.logger.info(f"Activating market: {market_slug}")
+                
+                # Store in session for use by trading commands
+                if req.session is not None:
+                    req.session["active_market_slug"] = market_slug
+                    return (f"✓ Market activated: {market_slug}\nYou can now use buy/sell commands.", True, None)
+                else:
+                    return ("Cannot activate market (no session context)", False, None)
+            
+            elif subcommand == "list":
+                self.logger.info("Listing football markets")
+                return ("📊 Fetching football markets...\n(Use 'see event <slug>' for detailed market info)", True, None)
+            
+            else:
+                return (f"Unknown markets subcommand: {subcommand}\nUse: search, activate, or list", False, None)
+        
+        except Exception as e:
+            self.logger.error(f"Markets command error: {e}", exc_info=True)
+            return (f"✗ Markets command error: {str(e)}", False, None)
+
+    async def _handle_orders(self, req: CommandRequest) -> HandlerResult:
+        """
+        Handle order operations
+        
+        Usage:
+            orders list               - List all open orders
+            orders cancel <order_id>  - Cancel a specific order
+            orders cancel all         - Cancel all open orders
+        """
+        if len(req.parts) < 2:
+            return ("Usage: orders [list|cancel] <args>", False, None)
+        
+        subcommand = req.parts[1].lower()
+        
+        try:
+            # Get orders core
+            if not hasattr(self.app.core, 'orders') or not self.app.core.orders:
+                return ("Orders core not available", False, None)
+            
+            orders_core = self.app.core.orders
+            
+            if subcommand == "list":
+                self.logger.info("Fetching open orders")
+                
+                result = await orders_core.get_active_orders()
+                
+                if not result.get("success"):
+                    return (f"✗ Failed to get orders: {result.get('message')}", False, None)
+                
+                orders = result.get("orders", [])
+                count = len(orders)
+                
+                if count == 0:
+                    return ("No open orders", True, None)
+                
+                # Format orders list
+                msg = f"📋 Open Orders ({count}):\n\n"
+                for i, order in enumerate(orders[:10], 1):  # Limit to 10 for display
+                    order_id = order.get("id", "N/A")[:8] + "..."
+                    side = order.get("side", "N/A")
+                    price = order.get("price", 0.0)
+                    size = order.get("size", 0.0)
+                    status = order.get("status", "N/A")
+                    msg += f"{i}. {order_id} | {side} | ${price:.4f} × {size:.2f} | {status}\n"
+                
+                if count > 10:
+                    msg += f"\n... and {count - 10} more"
+                
+                return (msg, True, None)
+            
+            elif subcommand == "cancel":
+                if len(req.parts) < 3:
+                    return ("Usage: orders cancel <order_id> or orders cancel all", False, None)
+                
+                target = req.parts[2].lower()
+                
+                if target == "all":
+                    self.logger.info("Cancelling all orders")
+                    result = await orders_core.cancel_all_orders()
+                    
+                    if result.get("success"):
+                        count = result.get("cancelled_count", 0)
+                        return (f"✓ Cancelled {count} order(s)", True, None)
+                    else:
+                        return (f"✗ {result.get('message')}", False, None)
+                else:
+                    order_id = target
+                    self.logger.info(f"Cancelling order: {order_id}")
+                    
+                    result = await orders_core.cancel_order(order_id)
+                    
+                    if result.get("success"):
+                        return (f"✓ Order cancelled: {order_id}", True, None)
+                    else:
+                        return (f"✗ {result.get('message')}", False, None)
+            
+            else:
+                return (f"Unknown orders subcommand: {subcommand}\nUse: list or cancel", False, None)
+        
+        except Exception as e:
+            self.logger.error(f"Orders command error: {e}", exc_info=True)
+            return (f"✗ Orders command error: {str(e)}", False, None)
+
+    async def _handle_positions(self, req: CommandRequest) -> HandlerResult:
+        """
+        Handle position operations
+        
+        Usage:
+            positions show            - Show current positions
+            positions pnl             - Show P&L summary
+        """
+        if len(req.parts) < 2:
+            # Default to 'show'
+            subcommand = "show"
+        else:
+            subcommand = req.parts[1].lower()
+        
+        try:
+            self.logger.info(f"Fetching positions ({subcommand})")
+            
+            # For now, return a placeholder
+            # In full implementation, this would query CLOB for positions
+            if subcommand == "show":
+                return ("💼 Current Positions:\n\n(No positions)\n\nUse 'buy' or 'sell' commands to open positions.", True, None)
+            elif subcommand == "pnl":
+                return ("📊 P&L Summary:\n\nTotal P&L: $0.00 (0.00%)\nRealized: $0.00\nUnrealized: $0.00", True, None)
+            else:
+                return (f"Unknown positions subcommand: {subcommand}\nUse: show or pnl", False, None)
+        
+        except Exception as e:
+            self.logger.error(f"Positions command error: {e}", exc_info=True)
+            return (f"✗ Positions command error: {str(e)}", False, None)
+
+    async def _handle_trades(self, req: CommandRequest) -> HandlerResult:
+        """
+        Handle trade history operations
+        
+        Usage:
+            trades history            - Show trade history
+            trades recent             - Show recent trades
+            trades today              - Show today's trades
+        """
+        if len(req.parts) < 2:
+            # Default to 'recent'
+            subcommand = "recent"
+        else:
+            subcommand = req.parts[1].lower()
+        
+        try:
+            self.logger.info(f"Fetching trade history ({subcommand})")
+            
+            # For now, return a placeholder
+            # In full implementation, this would query trade history from CLOB or database
+            if subcommand in ["history", "recent"]:
+                return ("📊 Recent Trades:\n\n(No trades yet)\n\nYour executed trades will appear here.", True, None)
+            elif subcommand == "today":
+                from datetime import datetime
+                today = datetime.now().strftime("%Y-%m-%d")
+                return (f"📊 Trades for {today}:\n\n(No trades today)\n\nYour executed trades will appear here.", True, None)
+            else:
+                return (f"Unknown trades subcommand: {subcommand}\nUse: history, recent, or today", False, None)
+        
+        except Exception as e:
+            self.logger.error(f"Trades command error: {e}", exc_info=True)
+            return (f"✗ Trades command error: {str(e)}", False, None)
 
     # ---------- Diagnostics ----------
     def active_handlers_info(self) -> Dict[str, Any]:

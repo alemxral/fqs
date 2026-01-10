@@ -9,6 +9,14 @@ echo "🚀 FQS - Football Quick Shoot Terminal"
 echo "=========================================="
 echo ""
 
+# Kill any existing FQS processes
+echo "🧹 Cleaning up old processes..."
+pkill -f "python.*app.py" 2>/dev/null && echo "   ✓ Killed old frontend" || echo "   • No old frontend found"
+pkill -f "python.*run_flask.py" 2>/dev/null && echo "   ✓ Killed old backend" || echo "   • No old backend found"
+pkill -f "python.*fqs" 2>/dev/null && echo "   ✓ Killed old FQS instances" || true
+sleep 1
+echo ""
+
 # Check if virtual environment exists and is valid
 if [ ! -d "venv" ] || [ ! -f "venv/bin/python" ]; then
     echo "📦 Creating virtual environment..."
@@ -34,6 +42,9 @@ if ! python -m pip --version >/dev/null 2>&1; then
     . venv/bin/activate
 fi
 
+# Set PYTHONPATH to project root
+export PYTHONPATH="$(pwd)/..:$PYTHONPATH"
+
 # Check if dependencies are installed
 if ! python -c "import textual" 2>/dev/null; then
     echo "⚠️  Installing dependencies (this may take a minute)..."
@@ -48,6 +59,15 @@ if ! python -c "import textual" 2>/dev/null; then
     fi
     echo "✓ Dependencies installed"
     echo ""
+fi
+
+# Install FQS package if not already installed
+if ! python -c "import fqs" 2>/dev/null; then
+    echo "📦 Installing FQS package..."
+    cd ..
+    python -m pip install -e . --quiet
+    cd fqs
+    echo "✓ FQS package installed"
 fi
 
 # Create logs directory if it doesn't exist

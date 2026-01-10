@@ -5,8 +5,11 @@ Provides REST API for football trading terminal
 import sys
 import os
 
-# Add parent directory to path so we can import fqs modules
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Add project root to path so we can import fqs modules
+# run_flask.py is at: poly/fqs/server/run_flask.py
+# We need to add: poly/ to the path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, project_root)
 
 from fqs.server import create_app
 

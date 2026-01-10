@@ -342,6 +342,142 @@ def get_market_details(slug):
         }), 500
 
 
+# ============= ORDER MANAGEMENT =============
+
+@api_bp.route('/orders/list', methods=['GET'])
+def list_orders():
+    """
+    Get all open orders
+    
+    Query params:
+        market: Optional market filter
+    
+    Response:
+        {
+            "success": true,
+            "orders": [...],
+            "count": 5
+        }
+    """
+    try:
+        # This would integrate with OrdersCore
+        # For now, return empty list
+        market = request.args.get('market')
+        
+        return jsonify({
+            'success': True,
+            'orders': [],
+            'count': 0,
+            'message': 'Order listing available when OrdersCore is integrated',
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@api_bp.route('/orders/cancel/<order_id>', methods=['POST'])
+def cancel_order(order_id):
+    """
+    Cancel a specific order
+    
+    Response:
+        {
+            "success": true,
+            "message": "Order cancelled"
+        }
+    """
+    try:
+        # This would integrate with OrdersCore
+        return jsonify({
+            'success': False,
+            'message': 'Order cancellation available when OrdersCore is integrated',
+            'order_id': order_id,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# ============= POSITION TRACKING =============
+
+@api_bp.route('/positions', methods=['GET'])
+def get_positions():
+    """
+    Get current positions
+    
+    Response:
+        {
+            "success": true,
+            "positions": [...],
+            "total_value": 0.0,
+            "total_pnl": 0.0
+        }
+    """
+    try:
+        # This would query actual positions from CLOB
+        return jsonify({
+            'success': True,
+            'positions': [],
+            'total_value': 0.0,
+            'total_pnl': 0.0,
+            'message': 'Position tracking available when integrated with CLOB',
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# ============= TRADE HISTORY =============
+
+@api_bp.route('/trades/history', methods=['GET'])
+def get_trade_history():
+    """
+    Get trade history
+    
+    Query params:
+        limit: Number of trades to return (default: 50)
+        market: Optional market filter
+    
+    Response:
+        {
+            "success": true,
+            "trades": [...],
+            "count": 0
+        }
+    """
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        market = request.args.get('market')
+        
+        # This would query trade history from database or CLOB
+        return jsonify({
+            'success': True,
+            'trades': [],
+            'count': 0,
+            'limit': limit,
+            'message': 'Trade history available when integrated',
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 # ============= HEALTH CHECK =============
 
 @api_bp.route('/health', methods=['GET'])
@@ -364,5 +500,13 @@ def create_app():
     
     # Register blueprints
     app.register_blueprint(api_bp, url_prefix='/api')
+    
+    # Register command routes blueprint
+    try:
+        from fqs.server.command_routes import command_bp
+        app.register_blueprint(command_bp)
+        print("✓ Command routes registered")
+    except ImportError as e:
+        print(f"⚠ Command routes not available: {e}")
     
     return app

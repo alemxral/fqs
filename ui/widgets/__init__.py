@@ -26,6 +26,26 @@ try:
 except ImportError:
     FootballWidget = None
 
+try:
+    from .open_orders import OpenOrdersWidget
+except ImportError:
+    OpenOrdersWidget = None
+
+try:
+    from .price_ticker import PriceTickerWidget
+except ImportError:
+    PriceTickerWidget = None
+
+try:
+    from .trade_history import TradeHistoryWidget
+except ImportError:
+    TradeHistoryWidget = None
+
+try:
+    from .position_summary import PositionSummaryWidget
+except ImportError:
+    PositionSummaryWidget = None
+
 __all__ = [
     "OrderBookWidget",
     "OrderBookContainer",
@@ -40,3 +60,11 @@ if CommandInput is not None:
     __all__.append("CommandInput")
 if FootballWidget is not None:
     __all__.append("FootballWidget")
+if OpenOrdersWidget is not None:
+    __all__.append("OpenOrdersWidget")
+if PriceTickerWidget is not None:
+    __all__.append("PriceTickerWidget")
+if TradeHistoryWidget is not None:
+    __all__.append("TradeHistoryWidget")
+if PositionSummaryWidget is not None:
+    __all__.append("PositionSummaryWidget")

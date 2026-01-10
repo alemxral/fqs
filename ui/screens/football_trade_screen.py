@@ -22,6 +22,10 @@ if str(utils_path) not in sys.path:
 from fqs.ui.widgets.football_widget import FootballWidget
 from fqs.ui.widgets.orderbook import OrderBookWidget
 from fqs.ui.widgets.command_input import CommandInput
+from fqs.ui.widgets.open_orders import OpenOrdersWidget
+from fqs.ui.widgets.price_ticker import PriceTickerWidget
+from fqs.ui.widgets.trade_history import TradeHistoryWidget
+from fqs.ui.widgets.position_summary import PositionSummaryWidget
 from get_events_with_tags import get_events_with_tags
 
 
@@ -55,6 +59,7 @@ class FootballTradeScreen(Screen):
         background: $surface;
     }
     
+    /* ========== HEADER ========== */
     #header_info {
         height: 3;
         width: 100%;
@@ -63,60 +68,216 @@ class FootballTradeScreen(Screen):
         padding: 0 2;
     }
     
+    #title_label {
+        color: $text;
+        text-style: bold;
+        padding-left: 1;
+    }
+    
     #balance_label {
         color: $success;
         text-style: bold;
+        padding-right: 1;
     }
     
+    /* ========== MAIN LAYOUT ========== */
     #main_container {
         height: 1fr;
         layout: horizontal;
     }
     
+    /* ========== LEFT PANEL (Events) - 30% ========== */
     #events_panel {
-        width: 25%;
+        width: 30%;
         height: 100%;
-        border: solid $primary;
+        border-right: thick $primary;
         background: $panel;
+        layout: vertical;
+        overflow-y: auto;
+        scrollbar-size-vertical: 2;
+    }
+    
+    #events_header {
+        height: 3;
+        background: $primary;
+        color: $text;
+        text-style: bold;
+        padding: 1 2;
+        border-bottom: solid $accent;
     }
     
     #events_table {
         height: 1fr;
+        border: none;
+        background: $panel;
+        overflow-y: auto;
+        scrollbar-size-vertical: 2;
     }
     
+    /* ========== CENTER PANEL (Trading) - 40% ========== */
     #center_panel {
-        width: 50%;
+        width: 40%;
         height: 100%;
         layout: vertical;
+        border-right: thick $primary;
+        overflow-y: auto;
+        scrollbar-size-vertical: 2;
+    }
+    
+    #football_widget {
+        height: auto;
+        min-height: 15;
+        border-bottom: solid $secondary;
     }
     
     #orderbooks_container {
         height: 1fr;
         layout: horizontal;
+        overflow-y: auto;
+        scrollbar-size-vertical: 2;
     }
     
     .orderbook-side {
         width: 1fr;
         height: 100%;
-        border: solid $secondary;
+        border: none;
+        overflow-y: auto;
+        scrollbar-size-vertical: 2;
     }
     
-    #output_panel {
-        width: 25%;
-        height: 100%;
-        border: solid $accent;
-        background: $surface;
+    #yes_header {
+        height: 3;
+        background: $success;
+        color: $text;
+        text-style: bold;
+        padding: 1;
+        text-align: center;
     }
     
-    #command_output {
+    #no_header {
+        height: 3;
+        background: $error;
+        color: $text;
+        text-style: bold;
+        padding: 1;
+        text-align: center;
+    }
+    
+    #yes_orderbook {
         height: 1fr;
-        background: $surface;
+        border-right: solid $secondary;
+        overflow-y: auto;
+        scrollbar-size-vertical: 2;
     }
     
+    #no_orderbook {
+        height: 1fr;
+        overflow-y: auto;
+        scrollbar-size-vertical: 2;
+    }
+    
+    /* ========== RIGHT PANEL (Widgets & Output) - 30% ========== */
+    #output_panel {
+        width: 30%;
+        height: 100%;
+        border: none;
+        background: $surface;
+        layout: vertical;
+        overflow-y: auto;
+        scrollbar-size-vertical: 2;
+    }
+    
+    #output_header {
+        height: 3;
+        background: $accent;
+        color: $text;
+        text-style: bold;
+        padding: 1 2;
+        border-bottom: solid $primary;
+    }
+    
+    /* Trading Widgets Section */
+    #trading_widgets {
+        height: 50%;
+        layout: vertical;
+        border-bottom: thick $primary;
+        overflow-y: auto;
+        scrollbar-size-vertical: 2;
+        scrollbar-size-horizontal: 1;
+        background: $boost;
+        padding: 1;
+    }
+    
+    /* Individual Widget Styling */
+    #price_ticker {
+        height: auto;
+        min-height: 8;
+        margin-bottom: 1;
+        border: solid $success;
+        background: $panel;
+        overflow-y: auto;
+        scrollbar-size-vertical: 1;
+    }
+    
+    #open_orders {
+        height: auto;
+        min-height: 10;
+        margin-bottom: 1;
+        border: solid $warning;
+        background: $panel;
+        overflow-y: auto;
+        scrollbar-size-vertical: 1;
+    }
+    
+    #position_summary {
+        height: auto;
+        min-height: 10;
+        margin-bottom: 1;
+        border: solid $accent;
+        background: $panel;
+        overflow-y: auto;
+        scrollbar-size-vertical: 1;
+    }
+    
+    #trade_history {
+        height: auto;
+        min-height: 8;
+        margin-bottom: 1;
+        border: solid $secondary;
+        background: $panel;
+        overflow-y: auto;
+        scrollbar-size-vertical: 1;
+    }
+    
+    /* Command Output Log */
+    #command_output {
+        height: 50%;
+        background: $surface;
+        border: none;
+        overflow-y: auto;
+        scrollbar-size-vertical: 2;
+        padding: 1;
+    }
+    
+    /* ========== COMMAND INPUT ========== */
     #command_container {
         height: 4;
         dock: bottom;
-        border: tall $accent;
+        border-top: thick $accent;
+        background: $boost;
+    }
+    
+    /* ========== SCROLLBAR STYLING ========== */
+    ::-webkit-scrollbar {
+        width: 2;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: $accent;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: $panel;
     }
     """
     
@@ -139,40 +300,51 @@ class FootballTradeScreen(Screen):
         }
     
     def compose(self) -> ComposeResult:
-        """Create screen layout"""
+        """Create enhanced screen layout with improved visibility and scrolling"""
         yield Header(show_clock=True)
         
-        # Header with balance info
+        # Header with balance info - prominent display
         with Horizontal(id="header_info"):
             yield Label("⚽ Football Trading Terminal", id="title_label")
-            yield Label("Balance: Loading...", id="balance_label")
+            yield Label("💰 Balance: Loading...", id="balance_label")
         
-        # Main 3-column layout
+        # Main 3-column layout: 30% | 40% | 30%
         with Container(id="main_container"):
-            # Left: Events list (25%)
+            # ===== LEFT PANEL: Events List (30%) =====
             with Vertical(id="events_panel"):
                 yield Static("⚽ Live Football Events", id="events_header")
                 yield DataTable(id="events_table")
             
-            # Center: Match widget + Orderbooks (50%)
+            # ===== CENTER PANEL: Trading Interface (40%) =====
             with Vertical(id="center_panel"):
+                # Match widget with live data
                 yield FootballWidget(id="football_widget")
                 
+                # Dual orderbook view (YES / NO)
                 with Container(id="orderbooks_container"):
                     with Vertical(classes="orderbook-side"):
-                        yield Static("📈 YES", id="yes_header")
+                        yield Static("📈 YES Orders", id="yes_header")
                         yield OrderBookWidget(id="yes_orderbook")
                     
                     with Vertical(classes="orderbook-side"):
-                        yield Static("📉 NO", id="no_header")
+                        yield Static("📉 NO Orders", id="no_header")
                         yield OrderBookWidget(id="no_orderbook")
             
-            # Right: Command output (25%)
+            # ===== RIGHT PANEL: Widgets & Output (30%) =====
             with Vertical(id="output_panel"):
-                yield Static("📋 Command Output", id="output_header")
+                yield Static("📊 Trading Dashboard", id="output_header")
+                
+                # Trading widgets section (top 50%)
+                with Vertical(id="trading_widgets"):
+                    yield PriceTickerWidget(id="price_ticker")
+                    yield OpenOrdersWidget(id="open_orders")
+                    yield PositionSummaryWidget(id="position_summary")
+                    yield TradeHistoryWidget(id="trade_history")
+                
+                # Command output log (bottom 50%)
                 yield RichLog(id="command_output", highlight=True, markup=True, wrap=True)
         
-        # Bottom: Command input
+        # Bottom: Command input (fixed height)
         with Container(id="command_container"):
             yield CommandInput(command_handler=self.handle_command, id="command_input")
         
@@ -208,7 +380,23 @@ class FootballTradeScreen(Screen):
             if self.yes_token and self.no_token:
                 self.log_output(f"[bold cyan]Market:[/bold cyan] {market_question}")
                 self.log_output(f"[dim]Slug: {self.market_slug}[/dim]")
+                
+                # Initialize widgets with token data
+                try:
+                    price_ticker = self.query_one("#price_ticker", PriceTickerWidget)
+                    price_ticker.set_token(self.yes_token)
+                    
+                    open_orders = self.query_one("#open_orders", OpenOrdersWidget)
+                    if hasattr(self.app.core, 'orders_manager'):
+                        await open_orders.initialize(self.app.core.orders_manager)
+                except Exception as e:
+                    self.log_output(f"[yellow]Widget init warning: {e}[/yellow]")
+                
                 await self.connect_websocket()
+        
+        # Start widget refresh timers
+        self.set_interval(5.0, self.refresh_orders_widget)
+        self.set_interval(10.0, self.refresh_positions_widget)
     
     async def load_football_events(self) -> None:
         """Load live football events from Gamma API"""
@@ -366,6 +554,13 @@ class FootballTradeScreen(Screen):
                 orderbook_widget = self.query_one("#no_orderbook", OrderBookWidget)
                 orderbook_widget.update_from_summary(data)
                 self.log_output(f"[dim red]NO orderbook updated[/dim red]")
+            
+            # Update price ticker widget with latest orderbook
+            try:
+                price_ticker = self.query_one("#price_ticker", PriceTickerWidget)
+                price_ticker.update_from_orderbook(data)
+            except:
+                pass  # Widget not available yet
                 
         except Exception as e:
             self.app.logger.error(f"Orderbook update error: {e}", exc_info=True)
@@ -383,6 +578,18 @@ class FootballTradeScreen(Screen):
         price = data.get('price', 'N/A')
         size = data.get('size', 'N/A')
         self.log_output(f"[bold]Trade: {side} @ {price} x {size}[/bold]")
+        
+        # Update trade history widget
+        try:
+            trade_history = self.query_one("#trade_history", TradeHistoryWidget)
+            trade_history.add_trade_from_dict({
+                "side": side,
+                "price": float(price) if price != 'N/A' else 0,
+                "size": float(size) if size != 'N/A' else 0,
+                "token_id": token_id
+            })
+        except:
+            pass  # Widget not available yet
     
     async def handle_command(self, command: str) -> None:
         """Handle commands from command input"""
@@ -478,3 +685,19 @@ class FootballTradeScreen(Screen):
             pass
         
         self.app.pop_screen()
+    
+    async def refresh_orders_widget(self) -> None:
+        """Refresh open orders widget"""
+        try:
+            orders_widget = self.query_one("#open_orders", OpenOrdersWidget)
+            await orders_widget.refresh_orders()
+        except Exception as e:
+            pass  # Widget might not be ready
+    
+    async def refresh_positions_widget(self) -> None:
+        """Refresh positions widget"""
+        try:
+            positions_widget = self.query_one("#position_summary", PositionSummaryWidget)
+            await positions_widget.update_positions()
+        except Exception as e:
+            pass  # Widget might not be ready
