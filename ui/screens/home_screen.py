@@ -538,8 +538,12 @@ class HomeScreen(Screen):
                             proxy_balance = data.get('proxy_balance', 0.0)
                             
                             # Update header if it exists
+                            # IMPORTANT: JSON naming is backwards!
+                            # - "proxy_balance" in JSON = FUNDER wallet (0xF937...6b43) = $349.85
+                            # - "derived_balance" in JSON = Derived wallet (0xBA46...0d52) = $24.00
+                            # So we SWAP them:
                             if hasattr(self, 'header'):
-                                self.header.update_balances(derived_balance, proxy_balance)
+                                self.header.update_balances(funder_balance=proxy_balance, proxy_balance=derived_balance)
                             
                             cached = " (cached)" if data.get('cached') else ""
                             self.app.logger.info(

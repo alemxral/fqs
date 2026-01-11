@@ -132,11 +132,15 @@ class MainHeader(Static):
         """Update proxy wallet info"""
         self.proxy_address = address
         self.proxy_balance = balance
+        # Force immediate refresh to show the updated values
+        self.refresh()
     
     def update_balances(self, funder_balance: float, proxy_balance: float) -> None:
         """Update both balances"""
         self.funder_balance = funder_balance
         self.proxy_balance = proxy_balance
+        # Force immediate refresh to show the updated values
+        self.refresh()
     
     def set_clob_status(self, connected: bool) -> None:  # ← Renamed method
         """
@@ -174,31 +178,71 @@ class MainHeader(Static):
     
     def _load_cached_balance(self) -> None:
         """
-        Load balance from cache and trigger balance request via RequestManager
+        Load balance directly from JSON cache file and addresses from .env
         
         This is called on mount to immediately show balance.
-        Uses the new queue-based RequestManager to fetch balance data.
+        Reads data/balance.json and updates header display.
         """
         try:
-            app = self.app
+            import json
+            import os
+            from pathlib import Path
+            from dotenv import load_dotenv
+            from web3 import Web3
             
-            # Check if RequestManager is available
-            if not hasattr(app, 'request_manager'):
-                if hasattr(app, 'logger'):
-                    app.logger.warning("RequestManager not available yet on MainHeader mount")
-                return
+            # Load .env file
+            env_path = Path(__file__).parent.parent.parent / "config" / ".env"
+            load_dotenv(env_path)
             
-            # Submit balance_header requests (use cache=True for fast initial load)
-            import asyncio
-            # Load funder balance
-            asyncio.create_task(self._request_balance_update(use_cache=True))
-            # Load proxy balance
-            asyncio.create_task(self._request_proxy_balance_update(use_cache=True))
-                
+            # Get FUNDER address from .env
+            funder_address = os.getenv("FUNDER")
+            if funder_address:
+                self.funder_address = funder_address
+            
+            # Get derived address from PRIVATE_KEY
+            private_key = os.getenv("PRIVATE_KEY")
+            if private_key:
+                try:
+                    account = Web3().eth.account.from_key(private_key)
+                    self.proxy_address = account.address
+                except Exception as e:
+                    if hasattr(self.app, 'logger'):
+                        self.app.logger.warning(f"Could not derive address from PRIVATE_KEY: {e}")
+            
+            # Get path to balance.json
+            balance_file = Path(__file__).parent.parent.parent / "data" / "balance.json"
+            
+            if balance_file.exists():
+                with open(balance_file, 'r') as f:
+                    data = json.load(f)
+                    
+                    if data.get('success'):
+                        # IMPORTANT: JSON naming is backwards!
+                        # - "proxy_balance" in JSON = FUNDER wallet balance
+                        # - "derived_balance" in JSON = Proxy/Derived wallet balance
+                        funder_bal = data.get('proxy_balance', 0.0)
+                        proxy_bal = data.get('derived_balance', 0.0)
+                        
+                        # Update the reactive attributes
+                        self.funder_balance = funder_bal
+                        self.proxy_balance = proxy_bal
+                        
+                        # Force refresh to show updated values
+                        self.refresh()
+                        
+                        if hasattr(self.app, 'logger'):
+                            self.app.logger.info(
+                                f"Header balance loaded from cache: "
+                                f"Funder=${funder_bal:.2f}, Proxy=${proxy_bal:.2f}"
+                            )
+            else:
+                if hasattr(self.app, 'logger'):
+                    self.app.logger.warning(f"Balance cache file not found: {balance_file}")
+                    
         except Exception as e:
             # Silently fail - header will show default values
             if hasattr(self.app, 'logger'):
-                self.app.logger.debug(f"Could not load cached balance: {e}")
+                self.app.logger.error(f"Could not load cached balance: {e}", exc_info=True)
     
     async def _request_balance_update(self, use_cache: bool = True) -> None:
         """
