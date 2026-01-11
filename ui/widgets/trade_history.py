@@ -72,30 +72,25 @@ class TradeHistoryWidget(Container):
         
         # Internal state
         self.trades: List[Dict[str, Any]] = []
-        
-        # Widget references
-        self.header: Optional[Static] = None
-        self.log: Optional[RichLog] = None
-        self.summary: Optional[Static] = None
 
     def compose(self) -> ComposeResult:
         with Vertical():
             # Header
-            self.header = Static("📊 TRADE HISTORY", classes="trade-header")
-            yield self.header
+            yield Static("📊 TRADE HISTORY", classes="trade-header")
 
             # RichLog for scrolling trade entries
-            self.log = RichLog(highlight=True, markup=True, wrap=True)
-            yield self.log
+            yield RichLog(highlight=True, markup=True, wrap=True, classes="trade-log")
 
             # Summary footer
-            self.summary = Static("No trades yet", classes="trade-summary")
-            yield self.summary
+            yield Static("No trades yet", classes="trade-summary")
 
     def on_mount(self) -> None:
         """Set up the widget after mounting."""
-        if self.log:
-            self.log.can_focus = False
+        try:
+            log = self.query_one(".trade-log", RichLog)
+            log.can_focus = False
+        except:
+            pass
 
     def add_trade(
         self,
@@ -179,8 +174,11 @@ class TradeHistoryWidget(Container):
         """Clear all trade history."""
         self.trades = []
         self.trade_count = 0
-        if self.log:
-            self.log.clear()
+        try:
+            log = self.query_one(".trade-log", RichLog)
+            log.clear()
+        except:
+            pass
         self._update_summary()
 
     def get_trades(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -201,7 +199,9 @@ class TradeHistoryWidget(Container):
 
     def _log_trade(self, trade: Dict[str, Any]) -> None:
         """Add a trade entry to the RichLog."""
-        if not self.log:
+        try:
+            log = self.query_one(".trade-log", RichLog)
+        except:
             return
 
         # Format timestamp
@@ -241,20 +241,22 @@ class TradeHistoryWidget(Container):
             order_id_short = trade['order_id'][:8] + "..."
             log_entry += f" | Order: {order_id_short}"
 
-        self.log.write(log_entry)
+        log.write(log_entry)
 
     def _update_summary(self) -> None:
         """Update the summary footer."""
-        if not self.summary:
+        try:
+            summary = self.query_one(".trade-summary", Static)
+        except:
             return
 
         count = len(self.trades)
         if count == 0:
-            self.summary.update("No trades yet")
+            summary.update("No trades yet")
         else:
             buy_count, sell_count = self.get_buy_sell_ratio()
             total_volume = self.get_total_volume()
-            self.summary.update(
+            summary.update(
                 f"Total: {count} trades ({buy_count} BUY, {sell_count} SELL) | "
                 f"Volume: ${total_volume:,.2f}"
             )
@@ -284,8 +286,11 @@ class TradeHistoryWidget(Container):
 
     def watch_trade_count(self, old_count: int, new_count: int) -> None:
         """React to changes in trade count."""
-        if self.header:
+        try:
+            header = self.query_one(".trade-header", Static)
             if new_count > 0:
-                self.header.update(f"📊 TRADE HISTORY ({new_count})")
+                header.update(f"📊 TRADE HISTORY ({new_count})")
             else:
-                self.header.update("📊 TRADE HISTORY")
+                header.update("📊 TRADE HISTORY")
+        except:
+            pass

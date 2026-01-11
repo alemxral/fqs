@@ -16,6 +16,11 @@ from pathlib import Path
 from datetime import datetime
 import httpx
 
+
+from ..widgets.main_header import MainHeader  # ← the MainHeader being imported (may be the wrong file)
+from .backend_logs_screen import BackendLogsScreen
+from ..widgets.command_input import CommandInput
+
 # Add utils path for direct market access
 utils_path = Path(__file__).parent.parent.parent / "fqs" / "utils" / "gamma-api"
 if str(utils_path) not in sys.path:
@@ -32,6 +37,7 @@ except ImportError:
 # Data cache path
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 MARKETS_CACHE = DATA_DIR / "all_active_markets.json"
+FOOTBALL_CACHE = DATA_DIR / "live_football_matches.json"  # Backend startup cache
 
 
 class LeagueHeader(Static):
@@ -124,6 +130,7 @@ class HomeScreen(Screen):
         Binding("escape", "go_back", "Back", priority=True),
         Binding("ctrl+r", "refresh_markets", "Refresh", priority=True),
         Binding("ctrl+f", "quick_trade", "Quick Trade", priority=True),
+        Binding("ctrl+l", "show_logs", "Backend Logs", priority=True),
         Binding("enter", "select_market", "Trade", priority=True),
     ]
     
@@ -172,6 +179,8 @@ class HomeScreen(Screen):
         height: 7;
         border: solid $accent;
         padding: 1;
+        overflow-y: auto;
+        scrollbar-size-vertical: 1;
     }
     
     #search_input {
@@ -183,13 +192,17 @@ class HomeScreen(Screen):
         border: solid $primary;
         background: $panel;
         overflow-y: auto;
+        overflow-x: auto;
         scrollbar-size-vertical: 2;
+        scrollbar-size-horizontal: 1;
     }
     
     #markets_table {
         background: $panel;
         border: none;
         max-height: 100%;
+        width: 100%;
+        min-width: 100%;
     }
     
     #status_message {
@@ -205,17 +218,67 @@ class HomeScreen(Screen):
         background: $boost;
         color: $text;
         text-style: bold;
+        height: 3;
     }
     
     DataTable > .datatable--cursor {
         background: $accent;
         color: $text;
     }
+    
+    DataTable > .datatable--hover {
+        background: $accent 50%;
+    }
+    
+    DataTable:focus > .datatable--cursor {
+        background: $accent;
+        text-style: bold;
+    }
+    
+    /* Make rows appear clickable and properly sized */
+    DataTable {
+        height: 1fr;
+        min-height: 10;
+    }
+    
+    DataTable .datatable--row {
+        height: auto;
+        min-height: 3;
+    }
+    
+    DataTable .datatable--fixed {
+        background: $boost;
+    }
+    
+    #action_buttons {
+        height: 4;
+        width: 100%;
+        align: center middle;
+        padding: 1 2;
+        background: $surface;
+    }
+    
+    .action-btn {
+        margin: 0 2;
+        min-width: 20;
+        height: 3;
+    }
+    
+    #command_container {
+        height: 5;
+        width: 100%;
+        border: solid $accent;
+        padding: 1;
+        background: $surface;
+        overflow-y: auto;
+        scrollbar-size-vertical: 1;
+    }
     """
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.markets = []  # List of market dicts with all data
+        self.filtered_markets = []  # Filtered markets for display
         self.loading = False
         self.search_tag = "football"  # Default search
         self.sports_tags = {}  # {sport_code: [tag_ids]}
@@ -285,6 +348,59 @@ class HomeScreen(Screen):
             self.app.logger.error(f"Failed to load cache: {e}")
         return []
     
+    def _load_football_matches_from_cache(self) -> list:
+        """Load football matches from backend startup cache"""
+        try:
+            if FOOTBALL_CACHE.exists():
+                with open(FOOTBALL_CACHE, 'r') as f:
+                    data = json.load(f)
+                    matches = data.get('matches', {})
+                    
+                    # Convert dict of matches to list format compatible with table
+                    markets_list = []
+                    for slug, match_data in matches.items():
+                        # Extract first market from the event
+                        event_markets = match_data.get('markets', [])
+                        if not event_markets:
+                            continue
+                        
+                        first_market = event_markets[0]
+                        
+                        # Extract YES/NO prices from tokens
+                        yes_price = 0.5
+                        no_price = 0.5
+                        clobTokenIds = first_market.get('clobTokenIds', '[]')
+                        outcomePrices = first_market.get('outcomePrices', '[]')
+                        
+                        try:
+                            prices = json.loads(outcomePrices) if isinstance(outcomePrices, str) else outcomePrices
+                            if len(prices) >= 2:
+                                yes_price = float(prices[0])
+                                no_price = float(prices[1])
+                        except:
+                            pass
+                        
+                        market_entry = {
+                            'slug': first_market.get('slug', slug),
+                            'event_slug': slug,
+                            'question': first_market.get('question', match_data.get('title', 'Unknown')),
+                            'start_date': match_data.get('startDate', ''),
+                            'end_date': first_market.get('endDate', match_data.get('endDate', '')),
+                            'yes_price': yes_price,
+                            'no_price': no_price,
+                            'event': match_data  # Store full event data
+                        }
+                        markets_list.append(market_entry)
+                    
+                    self.app.logger.info(f"Loaded {len(markets_list)} football matches from backend cache")
+                    return markets_list
+                    
+            else:
+                self.app.logger.warning(f"Football cache not found: {FOOTBALL_CACHE}")
+        except Exception as e:
+            self.app.logger.error(f"Failed to load football cache: {e}")
+        return []
+    
     def _save_markets_cache(self, markets: list) -> None:
         """Save markets to cache file"""
         try:
@@ -304,43 +420,50 @@ class HomeScreen(Screen):
             self.app.logger.error(f"Failed to save cache: {e}")
     
     def compose(self) -> ComposeResult:
-        """Create screen layout"""
-        yield Header(show_clock=True)
+
+
         
-        # Header with balance info
-        with Horizontal(id="header_info"):
-            yield Label("🏆 Sports Markets - Select to Trade", id="title_label")
-            yield Label("Balance: Loading...", id="balance_label")
-        
-        # Filter buttons row
-        with Horizontal(id="filter_bar"):
-            yield Button("⚽ Football", id="filter_football", classes="filter-btn")
-            yield Button("🏀 Basketball", id="filter_basketball", classes="filter-btn")
-            yield Button("🏈 NFL", id="filter_nfl", classes="filter-btn")
-            yield Button("🏒 Hockey", id="filter_hockey", classes="filter-btn")
-            yield Button("🎮 Esports", id="filter_esports", classes="filter-btn")
-            yield Button("📊 All", id="filter_all", classes="filter-btn active")
-        
+        # Create and store a reference to the header without kwargs
+        self.header = MainHeader()  # no id, no expand
+        yield self.header
+
+            
         # Search box
         with Container(id="search_container"):
-            yield Static("🔍 Search (Ctrl+Enter): epl, lal, nba, nfl, football, basketball | Or tag ID")
-            yield Input(placeholder="League code or tag ID...", id="search_input", value="")
+            yield Static("🔍 Search Match/Slug (partial match, case-insensitive):")
+            yield Input(placeholder="Type to filter matches...", id="search_input", value="")
         
         # Markets table
         with Container(id="markets_container"):
             yield LoadingIndicator(id="loading")
             yield DataTable(id="markets_table", zebra_stripes=True)
         
-        yield Static("ENTER: Trade | CTRL+F: Quick Trade | CTRL+Enter: Search | CTRL+R: Refresh | ESC: Back", id="status_message")
+        # # Action buttons row
+        # with Horizontal(id="action_buttons"):
+        #     yield Button("🖥️  Backend Logs", id="btn_show_logs", classes="action-btn")
+        
+        # Command input container
+        with Container(id="command_container"):
+            yield CommandInput(command_handler=self.handle_command, id="command_input")
+        
+        # yield Static("ENTER: Trade | CTRL+L: Logs | CTRL+F: Quick Trade | CTRL+Enter: Search | CTRL+R: Refresh | ESC: Back", id="status_message")
         yield Footer()
     
     async def on_mount(self) -> None:
         """Load markets on mount"""
         self.query_one("#loading", LoadingIndicator).display = False
         
-        # Setup markets table
+        # Setup markets table with proper columns
         markets_table = self.query_one("#markets_table", DataTable)
-        markets_table.add_columns("Sport", "Match", "Start", "End", "YES", "NO", "Slug")
+        markets_table.add_columns(
+            "🔴",  # Status indicator
+            "🏆 Match",
+            "📅 Date/Time",
+            "✅ YES",
+            "❌ NO",
+            "📊 Volume",
+            "🔗 Slug"
+        )
         markets_table.cursor_type = "row"
         markets_table.zebra_stripes = True
         
@@ -368,20 +491,30 @@ class HomeScreen(Screen):
             except Exception as e:
                 self.app.logger.error(f"Failed to load sports tags: {e}")
         
-        # Load from cache first for instant display
-        cached_markets = self._load_cached_markets()
-        if cached_markets:
-            # Filter for football only from cache
-            self.markets = [
-                m for m in cached_markets
-                if any(x in m.get('question', '').lower() 
-                      for x in ['football', 'soccer', 'premier', 'liga', 'serie', 'bundesliga'])
-            ][:30]  # Limit to 30 most recent
+        # PRIORITY 1: Load from backend startup cache (live_football_matches.json)
+        football_matches = self._load_football_matches_from_cache()
+        if football_matches:
+            self.markets = football_matches  # Load all available matches
+            self.filtered_markets = self.markets  # Initialize filtered markets
             self._populate_markets_table()
-            self.notify(f"Loaded {len(self.markets)} cached markets", severity="information")
-        
-        # Background refresh from API
-        await self.load_multiple_leagues()
+            self.notify(f"Loaded {len(self.markets)} football matches from cache", severity="information")
+        else:
+            # FALLBACK: Load from old cache or API
+            self.app.logger.info("Football cache unavailable, trying fallback")
+            cached_markets = self._load_cached_markets()
+            if cached_markets:
+                # Filter for football only from cache
+                self.markets = [
+                    m for m in cached_markets
+                    if any(x in m.get('question', '').lower() 
+                          for x in ['football', 'soccer', 'premier', 'liga', 'serie', 'bundesliga'])
+                ]  # Load all available football matches
+                self.filtered_markets = self.markets  # Initialize filtered markets
+                self._populate_markets_table()
+                self.notify(f"Loaded {len(self.markets)} cached markets", severity="information")
+            else:
+                # Last resort: fetch from API
+                await self.load_multiple_leagues()
     
     async def update_balance(self) -> None:
         """Update balance display"""
@@ -524,6 +657,7 @@ class HomeScreen(Screen):
                 self.markets.append(market_data)
             
             # Populate DataTable
+            self.filtered_markets = self.markets  # Initialize filtered markets
             self._populate_markets_table()
             
             # Save to cache for next launch
@@ -553,22 +687,64 @@ class HomeScreen(Screen):
         markets_table = self.query_one("#markets_table", DataTable)
         markets_table.clear()
         
-        for market in self.markets:
-            sport_icon = "⚽"  # Football emoji
-            match_name = market.get('question', 'Unknown')[:60]
-            start_time = self._format_date(market.get('start_date', ''))
-            end_time = self._format_date(market.get('end_date', ''))
-            yes_price = f"{market.get('yes_price', 0.5):.1%}"
-            no_price = f"{market.get('no_price', 0.5):.1%}"
-            slug = market.get('slug', '')[:30]
+        # Use filtered_markets if available, otherwise use all markets
+        markets_to_display = self.filtered_markets if self.filtered_markets else self.markets
+        
+        # Sort markets by end_date (soonest first)
+        try:
+            sorted_markets = sorted(
+                markets_to_display,
+                key=lambda m: m.get('end_date', '9999-12-31'),
+                reverse=False  # Ascending order - soonest games first
+            )
+        except Exception as e:
+            self.app.logger.warning(f"Could not sort markets: {e}")
+            sorted_markets = markets_to_display
+        
+        for market in sorted_markets:
+            # Extract event data for volume and status
+            event = market.get('event', {})
+            
+            # Status indicator - check if live
+            is_live = event.get('active', False) and not event.get('closed', False)
+            status_icon = "🔴" if is_live else "⏰"
+            
+            # Match name - truncate intelligently
+            match_name = market.get('question', 'Unknown')
+            if len(match_name) > 55:
+                match_name = match_name[:52] + "..."
+            
+            # Date/Time - show end date formatted
+            end_date = market.get('end_date', '')
+            datetime_str = self._format_date(end_date)
+            
+            # YES/NO prices with color formatting
+            yes_price = market.get('yes_price', 0.5)
+            no_price = market.get('no_price', 0.5)
+            yes_str = f"[green]{yes_price:.1%}[/green]"
+            no_str = f"[red]{no_price:.1%}[/red]"
+            
+            # Volume - format with K/M suffixes
+            volume = event.get('volume', 0)
+            if volume >= 1000000:
+                volume_str = f"${volume/1000000:.1f}M"
+            elif volume >= 1000:
+                volume_str = f"${volume/1000:.1f}K"
+            else:
+                volume_str = f"${volume:.0f}"
+            
+            # Slug - truncate for display
+            slug = market.get('slug', '')
+            if len(slug) > 25:
+                slug = slug[:22] + "..."
             
             markets_table.add_row(
-                sport_icon,
+                status_icon,
                 match_name,
-                start_time,
-                end_time,
-                yes_price,
-                no_price,
+                datetime_str,
+                yes_str,
+                no_str,
+                volume_str,
                 slug,
                 key=market.get('slug', '')
             )
@@ -576,6 +752,11 @@ class HomeScreen(Screen):
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle filter button presses"""
         button_id = event.button.id
+        
+        # Check for backend logs button
+        if button_id == "btn_show_logs":
+            self.action_show_logs()
+            return
         
         # Update active button styling
         for btn in self.query(".filter-btn"):
@@ -694,6 +875,7 @@ class HomeScreen(Screen):
                 })
             
             # Update table
+            self.filtered_markets = self.markets  # Initialize filtered markets
             self._populate_markets_table()
             
             # Save to cache
@@ -715,6 +897,10 @@ class HomeScreen(Screen):
         self.notify(f"Refreshing {tag} markets...", severity="information")
         await self.load_markets_by_tag(tag)
     
+    def action_show_logs(self) -> None:
+        """Show backend logs viewer screen"""
+        self.app.push_screen(BackendLogsScreen())
+    
     async def action_search_markets(self) -> None:
         """Focus search input for new search"""
         search_input = self.query_one("#search_input", Input)
@@ -724,8 +910,67 @@ class HomeScreen(Screen):
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle search input submission"""
         if event.input.id == "search_input":
-            tag = event.value.strip() or "football"
-            await self.load_markets_by_tag(tag)
+            search_text = event.value.strip().lower()
+            self._filter_markets(search_text)
+    
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Handle real-time search filtering as user types"""
+        if event.input.id == "search_input":
+            search_text = event.value.strip().lower()
+            self._filter_markets(search_text)
+    
+    def _filter_markets(self, search_text: str) -> None:
+        """Filter markets by partial match on question or slug (case-insensitive)"""
+        if not search_text:
+            # Empty search - show all markets
+            self.filtered_markets = self.markets
+        else:
+            # Filter markets where search_text appears in question or slug
+            self.filtered_markets = [
+                m for m in self.markets
+                if search_text in m.get('question', '').lower() or 
+                   search_text in m.get('slug', '').lower()
+            ]
+        
+        # Repopulate table with filtered results
+        self._populate_markets_table()
+        
+        # Show count in notification
+        count = len(self.filtered_markets)
+        if search_text:
+            self.notify(f"Found {count} match(es) for '{search_text}'", severity="information")
+    
+    async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handle row selection (clicking on a row) in DataTable"""
+        try:
+            # Get the row key from the event
+            row_key = event.row_key
+            
+            if not row_key or not self.markets:
+                return
+            
+            # Find the market by slug (row_key is the slug)
+            selected_market = None
+            for market in self.markets:
+                if market.get('slug') == row_key.value:
+                    selected_market = market
+                    break
+            
+            if not selected_market:
+                # Fallback: try using cursor row index
+                markets_table = self.query_one("#markets_table", DataTable)
+                if markets_table.cursor_row is not None and markets_table.cursor_row < len(self.markets):
+                    selected_market = self.markets[markets_table.cursor_row]
+            
+            if selected_market:
+                market_slug = selected_market.get('slug')
+                if market_slug:
+                    # Load and navigate to market
+                    await self._load_and_navigate_market(selected_market, market_slug)
+                    
+        except Exception as e:
+            self.app.logger.error(f"Failed to handle row selection: {e}", exc_info=True)
+            self.notify(f"Error selecting market: {str(e)}", severity="error")
     
     async def action_select_market(self) -> None:
         """Select highlighted market and navigate to trading screen"""
@@ -759,17 +1004,54 @@ class HomeScreen(Screen):
         """Helper to load market details and navigate to trade screen"""
         self.notify(f"Loading market: {market_slug[:30]}...", severity="information")
         
-        # Use async httpx client to get market details
-        market_details = await self._fetch_market_details_async(market_slug)
+        # Try to use get_events_by_slug utility first
+        market_details = None
+        event_slug = selected_market.get('event_slug', market_slug)
+        
+        if GAMMA_API_AVAILABLE:
+            try:
+                # Import the utility function
+                from get_events_by_slug import get_events_by_slug
+                
+                # Get event data by slug
+                self.app.logger.info(f"Fetching event by slug: {event_slug}")
+                event_data = await asyncio.get_event_loop().run_in_executor(
+                    None, get_events_by_slug, event_slug
+                )
+                
+                if event_data and len(event_data) > 0:
+                    event = event_data[0]
+                    markets = event.get('markets', [])
+                    
+                    # Find the specific market or use first one
+                    for mkt in markets:
+                        if mkt.get('slug') == market_slug:
+                            market_details = [mkt]
+                            break
+                    
+                    if not market_details and markets:
+                        market_details = [markets[0]]
+                        self.app.logger.info(f"Using first market from event")
+                else:
+                    self.app.logger.warning(f"No event data from get_events_by_slug")
+                    
+            except Exception as e:
+                self.app.logger.error(f"Error using get_events_by_slug: {e}")
+        
+        # Fallback: try async httpx client
+        if not market_details:
+            self.app.logger.info("Trying httpx fallback for market details")
+            market_details = await self._fetch_market_details_async(market_slug)
+        
+        # Extract token IDs if we have market details
+        yes_token = None
+        no_token = None
         
         if market_details and len(market_details) > 0:
             market_info = market_details[0]
             
             # Extract token IDs
             tokens = market_info.get('tokens', [])
-            yes_token = None
-            no_token = None
-            
             for token in tokens:
                 outcome = token.get('outcome', '').lower()
                 if 'yes' in outcome:
@@ -777,35 +1059,48 @@ class HomeScreen(Screen):
                 elif 'no' in outcome:
                     no_token = token.get('token_id')
             
-            # Validate we have required data
-            if not yes_token or not no_token:
-                self.notify("Missing token IDs for market", severity="error")
-                self.app.logger.error(f"Market {market_slug} missing tokens: {tokens}")
-                return
-            
-            # Store in app session
-            if not hasattr(self.app, 'session'):
-                self.app.session = {}
-            
-            self.app.session.update({
-                'market_slug': market_slug,
-                'event_slug': selected_market.get('event_slug', market_slug),
-                'market_question': market_info.get('question', selected_market.get('question')),
-                'yes_token': yes_token,
-                'no_token': no_token,
-                'yes_price': selected_market.get('yes_price', 0.5),
-                'no_price': selected_market.get('no_price', 0.5),
-            })
-            
+            # Also try clobTokenIds if tokens field is empty
+            if not yes_token and not no_token:
+                clob_tokens = market_info.get('clobTokenIds', '')
+                try:
+                    if isinstance(clob_tokens, str):
+                        token_ids = json.loads(clob_tokens)
+                    else:
+                        token_ids = clob_tokens
+                    
+                    if isinstance(token_ids, list) and len(token_ids) >= 2:
+                        yes_token = str(token_ids[0])
+                        no_token = str(token_ids[1])
+                        self.app.logger.info(f"Extracted tokens from clobTokenIds")
+                except Exception as e:
+                    self.app.logger.error(f"Error parsing clobTokenIds: {e}")
+        
+        # Even without full market details, try to navigate with what we have
+        # Store in app session
+        if not hasattr(self.app, 'session'):
+            self.app.session = {}
+        
+        self.app.session.update({
+            'market_slug': market_slug,
+            'event_slug': event_slug,
+            'market_question': selected_market.get('question', 'Unknown Market'),
+            'yes_token': yes_token,
+            'no_token': no_token,
+            'yes_price': selected_market.get('yes_price', 0.5),
+            'no_price': selected_market.get('no_price', 0.5),
+        })
+        
+        if yes_token and no_token:
             self.app.logger.info(f"Navigating to trade screen for {market_slug}")
             self.app.logger.info(f"  YES token: {yes_token}")
             self.app.logger.info(f"  NO token: {no_token}")
-            
-            # Navigate to trading screen
-            from fqs.ui.screens.football_trade_screen import FootballTradeScreen
-            self.app.push_screen(FootballTradeScreen())
         else:
-            self.notify(f"Could not load market details", severity="error")
+            self.app.logger.warning(f"Missing token IDs, but proceeding to trade screen")
+            self.notify("Token IDs not found, limited functionality", severity="warning")
+        
+        # Navigate to trading screen
+        from fqs.ui.screens.football_trade_screen import FootballTradeScreen
+        self.app.push_screen(FootballTradeScreen())
     
     async def action_quick_trade(self) -> None:
         """Quick trade: Launch FootballTradeScreen with first live market (bypass selection)"""
@@ -835,6 +1130,24 @@ class HomeScreen(Screen):
         self.notify(f"Quick trade: {selected_market.get('question', 'Unknown')[:50]}", severity="information")
         
         await self._load_and_navigate_market(selected_market, market_slug)
+    
+    async def handle_command(self, command: str) -> None:
+        """Handle commands from command input"""
+        self.app.logger.info(f"HomeScreen command: {command}")
+        
+        # Submit to commands manager if available
+        try:
+            if hasattr(self.app, 'commands_manager'):
+                await self.app.commands_manager.submit(
+                    origin="HomeScreen",
+                    command=command
+                )
+                self.notify(f"Command submitted: {command}", severity="information")
+            else:
+                self.notify("Commands manager not available", severity="warning")
+        except Exception as e:
+            self.app.logger.error(f"Command error: {e}")
+            self.notify(f"Command error: {str(e)}", severity="error")
     
     def action_go_back(self) -> None:
         """Go back to previous screen"""

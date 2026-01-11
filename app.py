@@ -155,6 +155,26 @@ class QSTerminal(
         try:
             self.logger.info("Starting background initialization")
             
+            # Warm up cache by calling live football markets endpoint
+            try:
+                self.logger.info("Warming up football markets cache...")
+                response = await self.api_client.get("/api/markets/football/live")
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get('success'):
+                        count = data.get('count', 0)
+                        cached = data.get('cached', False)
+                        cache_source = "cached" if cached else "fresh"
+                        self.logger.info(f"✓ Loaded {count} football matches ({cache_source})")
+                    else:
+                        self.logger.warning(f"Football markets fetch failed: {data.get('error')}")
+                else:
+                    self.logger.warning(f"Football markets endpoint returned {response.status_code}")
+                    
+            except Exception as e:
+                self.logger.warning(f"Could not warm up football markets cache: {e}")
+            
             self.logger.info("Background initialization complete")
             
         except Exception as e:

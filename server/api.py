@@ -478,6 +478,155 @@ def get_trade_history():
         }), 500
 
 
+# ============= LIVE FOOTBALL MARKETS =============
+
+@api_bp.route('/markets/football/live', methods=['GET'])
+def get_live_football_markets():
+    """
+    Get live football matches from Gamma API with caching
+    
+    Query params:
+        force_refresh: If 'true', bypass cache and fetch fresh data
+    
+    Response:
+        {
+            "success": true,
+            "matches": [...],
+            "count": 42,
+            "cached": false,
+            "cache_age_seconds": 0,
+            "timestamp": "..."
+        }
+    """
+    try:
+        # Import cache manager
+        import sys
+        from pathlib import Path
+        utils_path = Path(__file__).parent.parent / "utils" / "core"
+        if str(utils_path) not in sys.path:
+            sys.path.insert(0, str(utils_path))
+        
+        from cache_manager import read_cache, write_cache, read_cache_stale_ok, get_cache_age
+        
+        # Import get_live_football_matches utility
+        gamma_utils_path = Path(__file__).parent.parent / "utils" / "gamma-api"
+        if str(gamma_utils_path) not in sys.path:
+            sys.path.insert(0, str(gamma_utils_path))
+        
+        from get_live_football_matches import get_live_football_matches
+        
+        cache_filename = 'live_football_matches.json'
+        ttl_seconds = 300  # 5 minutes
+        force_refresh = request.args.get('force_refresh', '').lower() == 'true'
+        
+        # Try to read from cache first (unless force refresh)
+        if not force_refresh:
+            cached_data = read_cache(cache_filename, ttl_seconds)
+            if cached_data:
+                matches_data = cached_data.get('matches', cached_data.get('data', {}))
+                cache_age = get_cache_age(cache_filename) or 0
+                
+                return jsonify({
+                    'success': True,
+                    'matches': matches_data,
+                    'count': len(matches_data) if isinstance(matches_data, dict) else 0,
+                    'cached': True,
+                    'cache_age_seconds': round(cache_age, 1),
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+        
+        # Fetch fresh data from API
+        try:
+            print(f"Fetching live football matches from Gamma API...")
+            matches_dict = get_live_football_matches(fields=None)  # Get all fields
+            
+            if not matches_dict:
+                # Try returning stale cache as fallback
+                stale_cache = read_cache_stale_ok(cache_filename)
+                if stale_cache:
+                    matches_data = stale_cache.get('matches', stale_cache.get('data', {}))
+                    cache_age = get_cache_age(cache_filename) or 0
+                    
+                    return jsonify({
+                        'success': True,
+                        'matches': matches_data,
+                        'count': len(matches_data) if isinstance(matches_data, dict) else 0,
+                        'cached': True,
+                        'stale': True,
+                        'cache_age_seconds': round(cache_age, 1),
+                        'message': 'No fresh data available, using stale cache',
+                        'timestamp': datetime.utcnow().isoformat()
+                    })
+                else:
+                    return jsonify({
+                        'success': False,
+                        'error': 'No matches found and no cache available',
+                        'matches': {},
+                        'count': 0
+                    }), 404
+            
+            # Cache the results
+            metadata = {
+                "total_matches": len(matches_dict),
+                "source": "Gamma API /sports endpoint",
+                "extraction_timestamp": datetime.utcnow().isoformat()
+            }
+            
+            cache_data = {
+                "metadata": metadata,
+                "matches": matches_dict
+            }
+            
+            write_cache(cache_filename, cache_data, ttl_seconds=ttl_seconds)
+            
+            return jsonify({
+                'success': True,
+                'matches': matches_dict,
+                'count': len(matches_dict),
+                'cached': False,
+                'cache_age_seconds': 0,
+                'timestamp': datetime.utcnow().isoformat()
+            })
+            
+        except Exception as fetch_error:
+            # Fallback to stale cache on API error
+            print(f"Error fetching from API: {fetch_error}")
+            stale_cache = read_cache_stale_ok(cache_filename)
+            
+            if stale_cache:
+                matches_data = stale_cache.get('matches', stale_cache.get('data', {}))
+                cache_age = get_cache_age(cache_filename) or 0
+                
+                return jsonify({
+                    'success': True,
+                    'matches': matches_data,
+                    'count': len(matches_data) if isinstance(matches_data, dict) else 0,
+                    'cached': True,
+                    'stale': True,
+                    'cache_age_seconds': round(cache_age, 1),
+                    'error': str(fetch_error),
+                    'message': 'API error, using stale cache as fallback',
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'API error and no cache available: {str(fetch_error)}',
+                    'matches': {},
+                    'count': 0
+                }), 500
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'matches': {},
+            'count': 0
+        }), 500
+
+
 # ============= HEALTH CHECK =============
 
 @api_bp.route('/health', methods=['GET'])

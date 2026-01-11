@@ -30,6 +30,19 @@ def create_app():
     # Register command execution blueprint
     app.register_blueprint(command_bp)
     
+    # Execute startup tasks
+    try:
+        from fqs.server.startup_tasks import register_default_tasks, execute_startup_tasks
+        
+        logger.info("🚀 Running startup tasks...")
+        register_default_tasks()
+        summary = execute_startup_tasks(async_mode=True)
+        logger.info(f"✓ Startup tasks: {summary['completed']} completed, {summary['failed']} failed")
+        
+    except Exception as e:
+        logger.exception(f"Startup tasks failed: {e}")
+        logger.warning("Continuing without startup tasks")
+    
     # Initialize command manager for standalone Flask backend
     try:
         from fqs.managers.commands_manager import CommandsManager

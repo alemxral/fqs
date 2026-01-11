@@ -81,7 +81,7 @@ if __name__ == "__main__":
     # Test the function
     try:
         # Test with a known slug
-        test_slug = "lal-vil-bet-2025-10-18"
+        test_slug = "ssc-fcb-rmc-2026-01-11"
         
         print(f"Testing with slug: {test_slug}")
         print("=" * 50)
@@ -91,6 +91,7 @@ if __name__ == "__main__":
         all_data = get_events_by_slug(test_slug)
         print(f"   Status: Success")
         print(f"   Keys available: {list(all_data.keys())}")
+        print(f"   The data: {all_data}")
         
         # Get specific fields
         print("\n2. Fetching specific fields...")
