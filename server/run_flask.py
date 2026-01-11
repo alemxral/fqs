@@ -8,13 +8,13 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-# Add project root to path so we can import fqs modules
-# run_flask.py is at: poly/fqs/server/run_flask.py
-# We need to add: poly/ to the path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-sys.path.insert(0, project_root)
+# Add project root to path so we can import modules
+# run_flask.py is at: fqs/server/run_flask.py
+# We are already inside the fqs directory, so just import from server
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
-from fqs.server import create_app
+from server import create_app
 
 # Setup logging to file
 logs_dir = Path(os.path.dirname(__file__)).parent / "logs"

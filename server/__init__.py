@@ -5,8 +5,8 @@ import sys
 import os
 import logging
 
-# Add parent directory to path for fqs module imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+# Add parent directory to path for module imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from flask import Flask
 from flask_cors import CORS
@@ -32,7 +32,7 @@ def create_app():
     
     # Execute startup tasks
     try:
-        from fqs.server.startup_tasks import register_default_tasks, execute_startup_tasks
+        from server.startup_tasks import register_default_tasks, execute_startup_tasks
         
         logger.info("🚀 Running startup tasks...")
         register_default_tasks()
@@ -45,7 +45,7 @@ def create_app():
     
     # Initialize command manager for standalone Flask backend
     try:
-        from fqs.managers.commands_manager import CommandsManager
+        from managers.commands_manager import CommandsManager
         import threading
         
         # Create minimal core instance for command execution
@@ -54,8 +54,8 @@ def create_app():
         # Create a simple namespace object to hold core managers
         class CoreContainer:
             def __init__(self):
-                from fqs.core.orders import OrdersCore
-                from fqs.core.wallet import WalletCore
+                from core.orders import OrdersCore
+                from core.wallet import WalletCore
                 self.orders_manager = OrdersCore()
                 self.wallet_manager = WalletCore()
         

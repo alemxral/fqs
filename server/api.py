@@ -21,8 +21,8 @@ load_dotenv(PROJECT_ROOT / "config" / ".env")
 
 # Import clients
 try:
-    from fqs.client.clob_client import PolymarketClobClient
-    from fqs.client.gamma_client import PolymarketGammaClient
+    from client.clob_client import PolymarketClobClient
+    from client.gamma_client import PolymarketGammaClient
     from py_clob_client.client import ClobClient
     from py_clob_client.clob_types import ApiCreds
 except ImportError:
@@ -43,7 +43,7 @@ clob_client = None
 gamma_client = None
 
 try:
-    from ..client.ClobClientWrapper import get_authenticated_client
+    from client.ClobClientWrapper import get_authenticated_client
     print("🔧 Initializing CLOB client...")
     clob_client = get_authenticated_client()
     if clob_client:
@@ -218,101 +218,98 @@ def sell_order():
 @api_bp.route('/balance', methods=['GET'])
 def get_balance():
     """
-    Get wallet USDC balance from blockchain and cache to JSON
+    Get wallet USDC balance - serves cached data immediately, updates in background
     
-    Returns:
-        {
-            "success": true,
-            "balance": 1234.56,
-            "currency": "USDC",
-            "derived_balance": 100.00,
-            "proxy_balance": 1134.56,
-            "timestamp": "2026-01-11T..."
-        }
+    Returns JSON file cached data immediately, starts background blockchain update
     """
-    try:
-        # Import blockchain utility functions
-        import sys
-        import json
-        from pathlib import Path
-        
-        # Add utils paths
-        utils_derived_path = Path(__file__).parent.parent / "utils" / "account" / "derived-wallet"
-        utils_proxy_path = Path(__file__).parent.parent / "utils" / "account" / "proxy-wallet"
-        
-        if str(utils_derived_path) not in sys.path:
-            sys.path.insert(0, str(utils_derived_path))
-        if str(utils_proxy_path) not in sys.path:
-            sys.path.insert(0, str(utils_proxy_path))
-        
-        from get_balance_derived_address_blockchain import get_balance_derived_address
-        from get_balance_proxy_address_blockchain import check_blockchain_balance
-        
-        # Get derived wallet balance (USDC)
-        derived_balance = get_balance_derived_address("USDC")
-        
-        # Get proxy wallet balance (USDC + allowance)
-        proxy_balance, proxy_allowance = check_blockchain_balance(verbose=False)
-        
-        # Total balance
-        total_balance = derived_balance + proxy_balance
-        
-        # Prepare data
-        balance_data = {
-            'success': True,
-            'balance': total_balance,
-            'derived_balance': derived_balance,
-            'proxy_balance': proxy_balance,
-            'proxy_allowance': proxy_allowance,
-            'currency': 'USDC',
-            'timestamp': datetime.utcnow().isoformat(),
-            'source': 'blockchain'
-        }
-        
-        # Save to JSON file in data/
+    import json
+    from pathlib import Path
+    import threading
+    import sys
+    
+    # Setup paths
+    project_root = Path(__file__).parent.parent
+    data_dir = project_root / "data"
+    balance_file = data_dir / "balance.json"
+    
+    # Add utility paths for blockchain functions
+    utils_derived_path = project_root / "utils" / "account" / "derived-wallet"
+    utils_proxy_path = project_root / "utils" / "account" / "proxy-wallet"
+    
+    if str(utils_derived_path) not in sys.path:
+        sys.path.insert(0, str(utils_derived_path))
+    if str(utils_proxy_path) not in sys.path:
+        sys.path.insert(0, str(utils_proxy_path))
+    
+    # Background update function
+    def update_balance_background():
         try:
-            data_dir = Path(__file__).parent.parent / "data"
-            data_dir.mkdir(exist_ok=True)
-            balance_file = data_dir / "balance.json"
+            from get_balance_derived_address_blockchain import get_balance_derived_address
+            from get_balance_proxy_address_blockchain import check_blockchain_balance
             
+            print("🔄 Starting blockchain balance update...")
+            
+            # Fetch from blockchain
+            derived_balance = get_balance_derived_address("USDC")
+            proxy_balance, proxy_allowance = check_blockchain_balance(verbose=False)
+            total_balance = derived_balance + proxy_balance
+            
+            # Save to JSON
+            balance_data = {
+                'success': True,
+                'balance': total_balance,
+                'derived_balance': derived_balance,
+                'proxy_balance': proxy_balance,
+                'proxy_allowance': proxy_allowance,
+                'currency': 'USDC',
+                'timestamp': datetime.utcnow().isoformat(),
+                'source': 'blockchain',
+                'cached': False
+            }
+            
+            data_dir.mkdir(exist_ok=True)
             with open(balance_file, 'w') as f:
                 json.dump(balance_data, f, indent=2)
             
-            print(f"✅ Balance saved to {balance_file}")
-        except Exception as save_error:
-            print(f"⚠️  Could not save balance to file: {save_error}")
-        
-        return jsonify(balance_data)
-        
+            print(f"✅ Balance saved to JSON: ${total_balance:.2f} USDC (derived: ${derived_balance:.2f}, proxy: ${proxy_balance:.2f})")
+            
+        except Exception as e:
+            print(f"❌ Background balance update failed: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # Start background update thread (daemon=True means it won't block app shutdown)
+    update_thread = threading.Thread(target=update_balance_background, daemon=True)
+    update_thread.start()
+    print("⏳ Background blockchain update started")
+    
+    # IMMEDIATELY return cached data (don't wait for blockchain)
+    try:
+        if balance_file.exists():
+            with open(balance_file, 'r') as f:
+                cached_data = json.load(f)
+                cached_data['cached'] = True
+                cached_data['updating'] = True
+                print(f"📦 Serving cached balance: ${cached_data.get('balance', 0):.2f} USDC")
+                return jsonify(cached_data)
+        else:
+            print("⚠️ No cache file found, returning default")
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        
-        # Try to load from cached JSON file if blockchain fetch fails
-        try:
-            import json
-            from pathlib import Path
-            
-            data_dir = Path(__file__).parent.parent / "data"
-            balance_file = data_dir / "balance.json"
-            
-            if balance_file.exists():
-                with open(balance_file, 'r') as f:
-                    cached_data = json.load(f)
-                    cached_data['cached'] = True
-                    cached_data['cache_timestamp'] = cached_data.get('timestamp')
-                    cached_data['timestamp'] = datetime.utcnow().isoformat()
-                    return jsonify(cached_data)
-        except Exception as cache_error:
-            print(f"Could not load cached balance: {cache_error}")
-        
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'balance': 0,
-            'derived_balance': 0,
-            'proxy_balance': 0
-        }), 500
+        print(f"❌ Could not load cached balance: {e}")
+    
+    # No cache exists - return default and let background update create it
+    return jsonify({
+        'success': True,
+        'balance': 0.0,
+        'derived_balance': 0.0,
+        'proxy_balance': 0.0,
+        'proxy_allowance': 0.0,
+        'currency': 'USDC',
+        'timestamp': datetime.utcnow().isoformat(),
+        'cached': False,
+        'updating': True,
+        'message': 'Balance is being fetched from blockchain in background'
+    })
 
 
 # ============= MARKET DATA ENDPOINTS =============
