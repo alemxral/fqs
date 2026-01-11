@@ -19,6 +19,7 @@ import httpx
 
 from ..widgets.main_header import MainHeader  # ← the MainHeader being imported (may be the wrong file)
 from .backend_logs_screen import BackendLogsScreen
+from .commands_reference_screen import CommandsReferenceScreen
 from ..widgets.command_input import CommandInput
 
 # Add utils path for direct market access
@@ -131,7 +132,9 @@ class HomeScreen(Screen):
         Binding("ctrl+r", "refresh_markets", "Refresh", priority=True),
         Binding("ctrl+f", "quick_trade", "Quick Trade", priority=True),
         Binding("ctrl+l", "show_logs", "Backend Logs", priority=True),
-        Binding("enter", "select_market", "Trade", priority=True),
+        Binding("ctrl+h", "show_commands", "Commands Help", priority=True),
+        # Removed Enter binding to avoid conflicts with command input and search
+        # Use double-click on table row or CTRL+F for quick trade instead
     ]
     
     # Reactive balance
@@ -151,7 +154,7 @@ class HomeScreen(Screen):
     }
     
     #filter_bar {
-        height: 5;
+        height: 4;
         width: 100%;
         background: $surface;
         border: solid $accent;
@@ -175,16 +178,17 @@ class HomeScreen(Screen):
         text-style: bold;
     }
     
-    #search_container {
-        height: 7;
+    #search_input {
+        dock: top;
+        height: 3;
+        width: 100%;
         border: solid $accent;
-        padding: 1;
-        overflow-y: auto;
-        scrollbar-size-vertical: 1;
+        background: $surface;
+        padding: 0 1;
     }
     
-    #search_input {
-        width: 100%;
+    #search_input:focus {
+        border: tall $success;
     }
     
     #markets_container {
@@ -264,14 +268,24 @@ class HomeScreen(Screen):
         height: 3;
     }
     
-    #command_container {
-        height: 5;
+    #command_input {
+        dock: bottom;
+        height: 3;
         width: 100%;
         border: solid $accent;
-        padding: 1;
         background: $surface;
-        overflow-y: auto;
-        scrollbar-size-vertical: 1;
+        padding: 0 1;
+    }
+    
+    #command_input:focus {
+        border: tall $warning;
+    }
+    
+    Footer {
+        dock: bottom;
+        height: 1;
+        background: $boost;
+        layer: overlay;
     }
     """
     
@@ -420,33 +434,25 @@ class HomeScreen(Screen):
             self.app.logger.error(f"Failed to save cache: {e}")
     
     def compose(self) -> ComposeResult:
-
-
-        
         # Create and store a reference to the header without kwargs
         self.header = MainHeader()  # no id, no expand
         yield self.header
 
-            
-        # Search box
-        with Container(id="search_container"):
-            yield Static("🔍 Search Match/Slug (partial match, case-insensitive):")
-            yield Input(placeholder="Type to filter matches...", id="search_input", value="")
+        # Search box - docked to top
+        yield Input(placeholder="🔍 Search Match/Slug (partial match, case-insensitive)", id="search_input", value="")
         
-        # Markets table
+        # Markets table - takes remaining space
         with Container(id="markets_container"):
             yield LoadingIndicator(id="loading")
             yield DataTable(id="markets_table", zebra_stripes=True)
         
-        # # Action buttons row
-        # with Horizontal(id="action_buttons"):
-        #     yield Button("🖥️  Backend Logs", id="btn_show_logs", classes="action-btn")
+        # Command input - docked to bottom
+        yield CommandInput(
+            command_handler=self.handle_command,
+            id="command_input",
+            placeholder="⌨️ Enter command (type 'help' for available commands)"
+        )
         
-        # Command input container
-        with Container(id="command_container"):
-            yield CommandInput(command_handler=self.handle_command, id="command_input")
-        
-        # yield Static("ENTER: Trade | CTRL+L: Logs | CTRL+F: Quick Trade | CTRL+Enter: Search | CTRL+R: Refresh | ESC: Back", id="status_message")
         yield Footer()
     
     async def on_mount(self) -> None:
@@ -517,17 +523,43 @@ class HomeScreen(Screen):
                 await self.load_multiple_leagues()
     
     async def update_balance(self) -> None:
-        """Update balance display"""
+        """Update balance display from Flask API (which fetches from blockchain and caches to JSON)"""
         try:
+            # Fetch from Flask API - it uses blockchain utilities and caches to JSON
             if hasattr(self.app, 'api_client'):
-                response = await self.app.api_client.get("/api/balance")
-                data = response.json()
-                if data.get('success'):
-                    self.balance = data.get('balance', 0.0)
-                    balance_label = self.query_one("#balance_label", Label)
-                    balance_label.update(f"Balance: ${self.balance:.2f} USDC")
+                try:
+                    response = await self.app.api_client.get("/api/balance")
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get('success'):
+                            self.balance = data.get('balance', 0.0)
+                            derived_balance = data.get('derived_balance', 0.0)
+                            proxy_balance = data.get('proxy_balance', 0.0)
+                            
+                            # Update header if it exists
+                            if hasattr(self, 'header'):
+                                self.header.update_balances(derived_balance, proxy_balance)
+                            
+                            cached = " (cached)" if data.get('cached') else ""
+                            self.app.logger.info(
+                                f"Balance updated{cached}: ${self.balance:.2f} USDC "
+                                f"(Derived: ${derived_balance:.2f}, Proxy: ${proxy_balance:.2f})"
+                            )
+                            return
+                        else:
+                            self.app.logger.warning(f"Balance API returned error: {data.get('error')}")
+                    else:
+                        self.app.logger.warning(f"Balance API returned status {response.status_code}")
+                        
+                except Exception as api_error:
+                    self.app.logger.warning(f"Flask API not available: {api_error}")
+            
+            # If API fails, keep existing balance
+            self.app.logger.warning("Could not update balance, keeping cached value")
+            
         except Exception as e:
-            self.app.logger.error(f"Failed to update balance: {e}")
+            self.app.logger.error(f"Failed to update balance: {e}", exc_info=True)
     
     def get_sport_icon(self, sport_code: str) -> str:
         """Get emoji icon for sport"""
@@ -901,6 +933,10 @@ class HomeScreen(Screen):
         """Show backend logs viewer screen"""
         self.app.push_screen(BackendLogsScreen())
     
+    def action_show_commands(self) -> None:
+        """Show commands reference screen"""
+        self.app.push_screen(CommandsReferenceScreen())
+    
     async def action_search_markets(self) -> None:
         """Focus search input for new search"""
         search_input = self.query_one("#search_input", Input)
@@ -1135,6 +1171,16 @@ class HomeScreen(Screen):
         """Handle commands from command input"""
         self.app.logger.info(f"HomeScreen command: {command}")
         
+        # Check for LOOK command
+        if command.strip().upper().startswith('LOOK '):
+            slug = command.strip()[5:].strip()  # Extract slug after "LOOK "
+            if slug:
+                await self._load_market_by_slug(slug)
+                return
+            else:
+                self.notify("Usage: LOOK <slug>", severity="warning")
+                return
+        
         # Submit to commands manager if available
         try:
             if hasattr(self.app, 'commands_manager'):
@@ -1148,6 +1194,95 @@ class HomeScreen(Screen):
         except Exception as e:
             self.app.logger.error(f"Command error: {e}")
             self.notify(f"Command error: {str(e)}", severity="error")
+    
+    async def _load_market_by_slug(self, slug: str) -> None:
+        """Load a specific market by slug and add to table if not already present"""
+        self.notify(f"Looking up: {slug}", severity="information")
+        
+        # Check if already in markets
+        for market in self.markets:
+            if market.get('slug') == slug or market.get('event_slug') == slug:
+                self.notify(f"Market already loaded: {slug}", severity="information")
+                # Navigate to it
+                await self._load_and_navigate_market(market, market.get('slug'))
+                return
+        
+        # Try to fetch using get_events_by_slug
+        if GAMMA_API_AVAILABLE:
+            try:
+                from get_events_by_slug import get_events_by_slug
+                
+                self.app.logger.info(f"Fetching event by slug: {slug}")
+                event_data = await asyncio.get_event_loop().run_in_executor(
+                    None, get_events_by_slug, slug
+                )
+                
+                if event_data and len(event_data) > 0:
+                    event = event_data[0]
+                    event_slug = event.get('slug', slug)
+                    markets = event.get('markets', [])
+                    
+                    if not markets:
+                        self.notify(f"No markets found for: {slug}", severity="warning")
+                        return
+                    
+                    # Add each market from the event
+                    for market in markets:
+                        # Extract YES/NO prices
+                        yes_price = 0.5
+                        no_price = 0.5
+                        
+                        tokens = market.get('tokens', [])
+                        for token in tokens:
+                            outcome = token.get('outcome', '').lower()
+                            price = token.get('price', 0.5)
+                            if 'yes' in outcome:
+                                yes_price = price
+                            elif 'no' in outcome:
+                                no_price = price
+                        
+                        # Also try clobTokenIds/outcomePrices
+                        if yes_price == 0.5 and no_price == 0.5:
+                            try:
+                                outcomePrices = market.get('outcomePrices', '[]')
+                                prices = json.loads(outcomePrices) if isinstance(outcomePrices, str) else outcomePrices
+                                if len(prices) >= 2:
+                                    yes_price = float(prices[0])
+                                    no_price = float(prices[1])
+                            except:
+                                pass
+                        
+                        market_entry = {
+                            'slug': market.get('slug', slug),
+                            'event_slug': event_slug,
+                            'question': market.get('question', event.get('title', 'Unknown')),
+                            'start_date': event.get('startDate', ''),
+                            'end_date': market.get('endDate', event.get('endDate', '')),
+                            'yes_price': yes_price,
+                            'no_price': no_price,
+                            'event': event
+                        }
+                        
+                        # Add to markets list
+                        self.markets.append(market_entry)
+                    
+                    # Refresh table and notify
+                    self.filtered_markets = self.markets
+                    self._populate_markets_table()
+                    self.notify(f"Added {len(markets)} market(s) from {slug}", severity="information")
+                    
+                    # Navigate to first market
+                    if markets:
+                        first_market_slug = markets[0].get('slug', slug)
+                        await self._load_and_navigate_market(self.markets[-len(markets)], first_market_slug)
+                else:
+                    self.notify(f"Event not found: {slug}", severity="error")
+                    
+            except Exception as e:
+                self.app.logger.error(f"Error loading market by slug: {e}")
+                self.notify(f"Error: {str(e)}", severity="error")
+        else:
+            self.notify("Gamma API not available", severity="error")
     
     def action_go_back(self) -> None:
         """Go back to previous screen"""

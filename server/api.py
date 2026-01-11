@@ -23,24 +23,46 @@ load_dotenv(PROJECT_ROOT / "config" / ".env")
 try:
     from fqs.client.clob_client import PolymarketClobClient
     from fqs.client.gamma_client import PolymarketGammaClient
+    from py_clob_client.client import ClobClient
+    from py_clob_client.clob_types import ApiCreds
 except ImportError:
     # Fallback if client modules not available
     PolymarketClobClient = None
     PolymarketGammaClient = None
+    ClobClient = None
 
 # Create Blueprint
 api_bp = Blueprint('api', __name__)
 
-# Initialize clients (will use py-clob-client wrapper)
-try:
-    from fqs.client.ClobClientWrapper import create_clob_client
-    clob_client = create_clob_client()
-    gamma_client = PolymarketGammaClient()
-except Exception as e:
-    print(f"Warning: Could not initialize clients: {e}")
-    clob_client = None
-    gamma_client = None
+# Configuration
 CHAIN_ID = int(os.getenv("CHAIN_ID", "137"))
+CLOB_URL = os.getenv("CLOB_API_URL", "https://clob.polymarket.com")
+
+# Initialize clients (will use py-clob-client wrapper)
+clob_client = None
+gamma_client = None
+
+try:
+    from ..client.ClobClientWrapper import get_authenticated_client
+    print("🔧 Initializing CLOB client...")
+    clob_client = get_authenticated_client()
+    if clob_client:
+        print("✅ CLOB client initialized successfully")
+    else:
+        print("❌ get_authenticated_client() returned None")
+except Exception as e:
+    print(f"❌ Could not initialize CLOB client: {e}")
+    import traceback
+    traceback.print_exc()
+
+try:
+    if PolymarketGammaClient:
+        print("🔧 Initializing Gamma client...")
+        gamma_client = PolymarketGammaClient()
+        if gamma_client:
+            print("✅ Gamma client initialized successfully")
+except Exception as e:
+    print(f"❌ Could not initialize Gamma client: {e}")
 
 # Global client instances (initialized on first request)
 _clob_client = None
@@ -49,17 +71,31 @@ _gamma_client = None
 
 def get_clob_client():
     """Get or create CLOB client instance"""
-    global _clob_client
-    if _clob_client is None:
+    global _clob_client, clob_client
+    
+    # Use the already-created clob_client if available
+    if clob_client is not None:
+        return clob_client
+    
+    # Fallback: create a new instance if needed
+    if _clob_client is None and ClobClient is not None:
         _clob_client = ClobClient(CLOB_URL, chain_id=CHAIN_ID)
+    
     return _clob_client
 
 
 def get_gamma_client():
     """Get or create Gamma API client instance"""
-    global _gamma_client
-    if _gamma_client is None:
-        _gamma_client = GammaAPIClient()
+    global _gamma_client, gamma_client
+    
+    # Use the already-created gamma_client if available
+    if gamma_client is not None:
+        return gamma_client
+    
+    # Fallback: create a new instance if needed
+    if _gamma_client is None and PolymarketGammaClient is not None:
+        _gamma_client = PolymarketGammaClient()
+    
     return _gamma_client
 
 
@@ -182,36 +218,100 @@ def sell_order():
 @api_bp.route('/balance', methods=['GET'])
 def get_balance():
     """
-    Get wallet USDC balance
+    Get wallet USDC balance from blockchain and cache to JSON
     
     Returns:
         {
             "success": true,
             "balance": 1234.56,
-            "currency": "USDC"
+            "currency": "USDC",
+            "derived_balance": 100.00,
+            "proxy_balance": 1134.56,
+            "timestamp": "2026-01-11T..."
         }
     """
     try:
-        client = get_clob_client()
+        # Import blockchain utility functions
+        import sys
+        import json
+        from pathlib import Path
         
-        # Get balance from CLOB client
-        balance_data = client.get_balance_allowance()
+        # Add utils paths
+        utils_derived_path = Path(__file__).parent.parent / "utils" / "account" / "derived-wallet"
+        utils_proxy_path = Path(__file__).parent.parent / "utils" / "account" / "proxy-wallet"
         
-        # Extract USDC balance
-        usdc_balance = float(balance_data.get('balance', 0))
+        if str(utils_derived_path) not in sys.path:
+            sys.path.insert(0, str(utils_derived_path))
+        if str(utils_proxy_path) not in sys.path:
+            sys.path.insert(0, str(utils_proxy_path))
         
-        return jsonify({
+        from get_balance_derived_address_blockchain import get_balance_derived_address
+        from get_balance_proxy_address_blockchain import check_blockchain_balance
+        
+        # Get derived wallet balance (USDC)
+        derived_balance = get_balance_derived_address("USDC")
+        
+        # Get proxy wallet balance (USDC + allowance)
+        proxy_balance, proxy_allowance = check_blockchain_balance(verbose=False)
+        
+        # Total balance
+        total_balance = derived_balance + proxy_balance
+        
+        # Prepare data
+        balance_data = {
             'success': True,
-            'balance': usdc_balance,
+            'balance': total_balance,
+            'derived_balance': derived_balance,
+            'proxy_balance': proxy_balance,
+            'proxy_allowance': proxy_allowance,
             'currency': 'USDC',
-            'timestamp': datetime.utcnow().isoformat()
-        })
+            'timestamp': datetime.utcnow().isoformat(),
+            'source': 'blockchain'
+        }
+        
+        # Save to JSON file in data/
+        try:
+            data_dir = Path(__file__).parent.parent / "data"
+            data_dir.mkdir(exist_ok=True)
+            balance_file = data_dir / "balance.json"
+            
+            with open(balance_file, 'w') as f:
+                json.dump(balance_data, f, indent=2)
+            
+            print(f"✅ Balance saved to {balance_file}")
+        except Exception as save_error:
+            print(f"⚠️  Could not save balance to file: {save_error}")
+        
+        return jsonify(balance_data)
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        
+        # Try to load from cached JSON file if blockchain fetch fails
+        try:
+            import json
+            from pathlib import Path
+            
+            data_dir = Path(__file__).parent.parent / "data"
+            balance_file = data_dir / "balance.json"
+            
+            if balance_file.exists():
+                with open(balance_file, 'r') as f:
+                    cached_data = json.load(f)
+                    cached_data['cached'] = True
+                    cached_data['cache_timestamp'] = cached_data.get('timestamp')
+                    cached_data['timestamp'] = datetime.utcnow().isoformat()
+                    return jsonify(cached_data)
+        except Exception as cache_error:
+            print(f"Could not load cached balance: {cache_error}")
+        
         return jsonify({
             'success': False,
             'error': str(e),
-            'balance': 0
+            'balance': 0,
+            'derived_balance': 0,
+            'proxy_balance': 0
         }), 500
 
 

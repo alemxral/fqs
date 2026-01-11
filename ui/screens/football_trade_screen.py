@@ -19,15 +19,23 @@ utils_path = Path(__file__).parent.parent.parent / "utils" / "gamma-api"
 if str(utils_path) not in sys.path:
     sys.path.insert(0, str(utils_path))
 
-from fqs.ui.widgets.football_widget import FootballWidget
-from fqs.ui.widgets.orderbook import OrderBookWidget
-from fqs.ui.widgets.command_input import CommandInput
-from fqs.ui.widgets.open_orders import OpenOrdersWidget
-from fqs.ui.widgets.price_ticker import PriceTickerWidget
-from fqs.ui.widgets.trade_history import TradeHistoryWidget
-from fqs.ui.widgets.position_summary import PositionSummaryWidget
-from get_events_with_tags import get_events_with_tags
+# Import gamma-api utilities
+try:
+    from get_events_with_tags import get_events_with_tags
+except ImportError:
+    get_events_with_tags = None
 
+# Import widgets
+from ..widgets.football_widget import FootballWidget
+from ..widgets.orderbook import OrderBookWidget
+from ..widgets.command_input import CommandInput
+from ..widgets.open_orders import OpenOrdersWidget
+from ..widgets.price_ticker import PriceTickerWidget
+from ..widgets.trade_history import TradeHistoryWidget
+from ..widgets.position_summary import PositionSummaryWidget
+from ..widgets.main_header import MainHeader
+from .backend_logs_screen import BackendLogsScreen
+from .commands_reference_screen import CommandsReferenceScreen
 
 class FootballTradeScreen(Screen):
     """
@@ -47,6 +55,8 @@ class FootballTradeScreen(Screen):
         Binding("ctrl+n", "quick_buy_no", "Buy NO", priority=True),
         Binding("ctrl+b", "refresh_balance", "Balance", priority=True),
         Binding("ctrl+r", "refresh_events", "Refresh", priority=True),
+        Binding("ctrl+l", "show_logs", "Backend Logs", priority=True),
+        Binding("ctrl+h", "show_commands", "Commands Help", priority=True),
         Binding("ctrl+s", "update_score", "Update Score", priority=True),
         Binding("ctrl+t", "update_time", "Update Time", priority=True),
     ]
@@ -59,42 +69,20 @@ class FootballTradeScreen(Screen):
         background: $surface;
     }
     
-    /* ========== HEADER ========== */
-    #header_info {
-        height: 3;
-        width: 100%;
-        background: $boost;
-        border: tall $primary;
-        padding: 0 2;
-    }
-    
-    #title_label {
-        color: $text;
-        text-style: bold;
-        padding-left: 1;
-    }
-    
-    #balance_label {
-        color: $success;
-        text-style: bold;
-        padding-right: 1;
-    }
-    
     /* ========== MAIN LAYOUT ========== */
     #main_container {
         height: 1fr;
         layout: horizontal;
+        margin-bottom: 9;
     }
     
-    /* ========== LEFT PANEL (Events) - 30% ========== */
+    /* ========== LEFT PANEL (Events List) - 25% ========== */
     #events_panel {
-        width: 30%;
+        width: 25%;
         height: 100%;
         border-right: thick $primary;
         background: $panel;
         layout: vertical;
-        overflow-y: auto;
-        scrollbar-size-vertical: 2;
     }
     
     #events_header {
@@ -102,7 +90,8 @@ class FootballTradeScreen(Screen):
         background: $primary;
         color: $text;
         text-style: bold;
-        padding: 1 2;
+        padding: 1;
+        content-align: center middle;
         border-bottom: solid $accent;
     }
     
@@ -110,39 +99,56 @@ class FootballTradeScreen(Screen):
         height: 1fr;
         border: none;
         background: $panel;
-        overflow-y: auto;
         scrollbar-size-vertical: 2;
     }
     
-    /* ========== CENTER PANEL (Trading) - 40% ========== */
+    DataTable {
+        height: 100%;
+    }
+    
+    DataTable > .datatable--header {
+        background: $boost;
+        color: $text;
+        text-style: bold;
+    }
+    
+    DataTable > .datatable--cursor {
+        background: $accent;
+        color: $text;
+    }
+    
+    DataTable > .datatable--hover {
+        background: $accent 50%;
+    }
+    
+    /* ========== CENTER PANEL (Trading) - 45% ========== */
     #center_panel {
-        width: 40%;
+        width: 45%;
         height: 100%;
         layout: vertical;
         border-right: thick $primary;
-        overflow-y: auto;
-        scrollbar-size-vertical: 2;
+        background: $surface;
     }
     
     #football_widget {
         height: auto;
-        min-height: 15;
-        border-bottom: solid $secondary;
+        min-height: 12;
+        max-height: 20;
+        border-bottom: thick $secondary;
+        background: $panel;
+        padding: 1;
     }
     
     #orderbooks_container {
         height: 1fr;
         layout: horizontal;
-        overflow-y: auto;
-        scrollbar-size-vertical: 2;
+        background: $surface;
     }
     
     .orderbook-side {
         width: 1fr;
         height: 100%;
-        border: none;
-        overflow-y: auto;
-        scrollbar-size-vertical: 2;
+        layout: vertical;
     }
     
     #yes_header {
@@ -151,7 +157,7 @@ class FootballTradeScreen(Screen):
         color: $text;
         text-style: bold;
         padding: 1;
-        text-align: center;
+        content-align: center middle;
     }
     
     #no_header {
@@ -160,19 +166,19 @@ class FootballTradeScreen(Screen):
         color: $text;
         text-style: bold;
         padding: 1;
-        text-align: center;
+        content-align: center middle;
     }
     
     #yes_orderbook {
         height: 1fr;
         border-right: solid $secondary;
-        overflow-y: auto;
+        background: $panel;
         scrollbar-size-vertical: 2;
     }
     
     #no_orderbook {
         height: 1fr;
-        overflow-y: auto;
+        background: $panel;
         scrollbar-size-vertical: 2;
     }
     
@@ -180,11 +186,8 @@ class FootballTradeScreen(Screen):
     #output_panel {
         width: 30%;
         height: 100%;
-        border: none;
-        background: $surface;
         layout: vertical;
-        overflow-y: auto;
-        scrollbar-size-vertical: 2;
+        background: $surface;
     }
     
     #output_header {
@@ -192,92 +195,87 @@ class FootballTradeScreen(Screen):
         background: $accent;
         color: $text;
         text-style: bold;
-        padding: 1 2;
-        border-bottom: solid $primary;
+        padding: 1;
+        content-align: center middle;
+        border-bottom: thick $primary;
     }
     
     /* Trading Widgets Section */
     #trading_widgets {
-        height: 50%;
+        height: 45%;
         layout: vertical;
         border-bottom: thick $primary;
-        overflow-y: auto;
-        scrollbar-size-vertical: 2;
-        scrollbar-size-horizontal: 1;
         background: $boost;
         padding: 1;
+        scrollbar-size-vertical: 2;
     }
     
     /* Individual Widget Styling */
     #price_ticker {
         height: auto;
-        min-height: 8;
+        min-height: 6;
         margin-bottom: 1;
         border: solid $success;
         background: $panel;
-        overflow-y: auto;
+        padding: 1;
         scrollbar-size-vertical: 1;
     }
     
     #open_orders {
         height: auto;
-        min-height: 10;
+        min-height: 8;
         margin-bottom: 1;
         border: solid $warning;
         background: $panel;
-        overflow-y: auto;
+        padding: 1;
         scrollbar-size-vertical: 1;
     }
     
     #position_summary {
         height: auto;
-        min-height: 10;
+        min-height: 8;
         margin-bottom: 1;
         border: solid $accent;
         background: $panel;
-        overflow-y: auto;
+        padding: 1;
         scrollbar-size-vertical: 1;
     }
     
     #trade_history {
         height: auto;
-        min-height: 8;
-        margin-bottom: 1;
+        min-height: 6;
         border: solid $secondary;
         background: $panel;
-        overflow-y: auto;
+        padding: 1;
         scrollbar-size-vertical: 1;
     }
     
     /* Command Output Log */
     #command_output {
-        height: 50%;
+        height: 55%;
         background: $surface;
-        border: none;
-        overflow-y: auto;
-        scrollbar-size-vertical: 2;
+        border-top: solid $accent;
         padding: 1;
+        scrollbar-size-vertical: 2;
     }
     
-    /* ========== COMMAND INPUT ========== */
+    /* ========== COMMAND INPUT (Bottom Fixed) ========== */
     #command_container {
-        height: 4;
         dock: bottom;
+        height: 8;
+        width: 100%;
         border-top: thick $accent;
         background: $boost;
+        padding: 1;
+        layer: overlay;
     }
     
-    /* ========== SCROLLBAR STYLING ========== */
-    ::-webkit-scrollbar {
-        width: 2;
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: $accent;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: $panel;
+    /* ========== FOOTER ========== */
+    Footer {
+        dock: bottom;
+        height: 1;
+        background: $boost;
+        layer: overlay;
     }
     """
     
@@ -300,13 +298,13 @@ class FootballTradeScreen(Screen):
         }
     
     def compose(self) -> ComposeResult:
-        """Create enhanced screen layout with improved visibility and scrolling"""
-        yield Header(show_clock=True)
+
+
         
-        # Header with balance info - prominent display
-        with Horizontal(id="header_info"):
-            yield Label("⚽ Football Trading Terminal", id="title_label")
-            yield Label("💰 Balance: Loading...", id="balance_label")
+        # Create and store a reference to the header without kwargs
+        self.header = MainHeader()  # no id, no expand
+        yield self.header
+
         
         # Main 3-column layout: 30% | 40% | 30%
         with Container(id="main_container"):
@@ -334,15 +332,17 @@ class FootballTradeScreen(Screen):
             with Vertical(id="output_panel"):
                 yield Static("📊 Trading Dashboard", id="output_header")
                 
-                # Trading widgets section (top 50%)
+                # Trading widgets section (top 45%)
                 with Vertical(id="trading_widgets"):
                     yield PriceTickerWidget(id="price_ticker")
                     yield OpenOrdersWidget(id="open_orders")
                     yield PositionSummaryWidget(id="position_summary")
                     yield TradeHistoryWidget(id="trade_history")
                 
-                # Command output log (bottom 50%)
-                yield RichLog(id="command_output", highlight=True, markup=True, wrap=True)
+                # Command output log (bottom 55%)
+                yield RichLog(id="command_output", highlight=True, markup=True)
+
+
         
         # Bottom: Command input (fixed height)
         with Container(id="command_container"):
@@ -402,6 +402,10 @@ class FootballTradeScreen(Screen):
         """Load live football events from Gamma API"""
         try:
             self.log_output("[yellow]Fetching live football events...[/yellow]")
+            
+            if get_events_with_tags is None:
+                self.log_output("[red]Gamma API utilities not available[/red]")
+                return
             
             # Football tag ID is typically 100381 (or search for "football" in tags)
             # Get active events only (closed=False)
@@ -674,6 +678,14 @@ class FootballTradeScreen(Screen):
         """Prompt for manual time update"""
         self.notify("Enter time update command: time <mm:ss>", severity="information")
         self.log_output("[dim]Use command: time 67:30[/dim]")
+    
+    def action_show_logs(self) -> None:
+        """Show backend logs viewer screen"""
+        self.app.push_screen(BackendLogsScreen())
+    
+    def action_show_commands(self) -> None:
+        """Show commands reference screen"""
+        self.app.push_screen(CommandsReferenceScreen())
     
     def action_go_back(self) -> None:
         """Go back to home screen"""
